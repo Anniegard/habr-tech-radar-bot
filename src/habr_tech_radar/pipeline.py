@@ -18,7 +18,7 @@ from habr_tech_radar.models.article import RadarItem
 from habr_tech_radar.scoring.heuristic import HeuristicArticleScoring
 from habr_tech_radar.scoring.service import ArticleScoring
 from habr_tech_radar.selection import select_top_scored
-from habr_tech_radar.settings import Settings
+from habr_tech_radar.settings import Settings, effective_state_file
 from habr_tech_radar.state.seen_store import SeenArticleStore
 
 logger = logging.getLogger(__name__)
@@ -63,7 +63,7 @@ def default_components(settings: Settings) -> PipelineComponents:
     if settings.demo_mode:
         ingestion: HabrIngestion = StubHabrIngestion(demo_mode=True)
     else:
-        store = SeenArticleStore(settings.state_file)
+        store = SeenArticleStore(effective_state_file(settings))
         ingestion = RssHabrIngestion(settings=settings, store=store)
     return PipelineComponents(
         ingestion=ingestion,

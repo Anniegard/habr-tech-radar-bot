@@ -1,0 +1,25 @@
+# Runs habr-tech-radar.service on a schedule. Application stays one-shot; systemd owns timing.
+#
+# Example: every hour at 17 minutes past the hour (non-zero minute offset).
+# Edit OnCalendar to taste (see systemd.time(7)).
+#
+# Install:
+#   sudo install -m 0644 deploy/habr-tech-radar.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now habr-tech-radar.timer
+#
+# Overlap: if a run exceeds the interval, two instances may overlap. Prefer a long enough
+# interval, tune TimeoutStartSec on the service, or wrap ExecStart with flock (see README).
+
+[Unit]
+Description=Timer for Habr Tech Radar (hourly at :17)
+Documentation=file:///home/htrbot/habr-tech-radar-bot/README.md
+
+[Timer]
+OnCalendar=*-*-* *:17:00
+Persistent=true
+RandomizedDelaySec=120
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

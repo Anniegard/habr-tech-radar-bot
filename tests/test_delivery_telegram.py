@@ -52,7 +52,7 @@ def test_format_radar_item_html_escapes_user_content() -> None:
     item = _radar_with(
         title='Evil <b>bold</b> & "quotes"',
         summary="<script>x</script>",
-        reasons=['line with <tag> & ampersand'],
+        reasons=["line with <tag> & ampersand"],
         expl=ScoreExplanation(
             matched_include_keywords=["<kw>", "python"],
             matched_include_hubs=["&hub;"],
@@ -76,9 +76,7 @@ def test_truncate_for_telegram_adds_suffix() -> None:
 
 
 def test_telegram_credentials_ok() -> None:
-    assert telegram_credentials_ok(
-        Settings(telegram_bot_token="t", telegram_chat_id="1")
-    )
+    assert telegram_credentials_ok(Settings(telegram_bot_token="t", telegram_chat_id="1"))
     assert not telegram_credentials_ok(Settings(telegram_bot_token=None, telegram_chat_id="1"))
     assert not telegram_credentials_ok(Settings(telegram_bot_token="  ", telegram_chat_id="1"))
 

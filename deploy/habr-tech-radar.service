@@ -1,0 +1,45 @@
+# Habr Tech Radar — one-shot pipeline run (triggered by habr-tech-radar.timer).
+#
+# Before enabling:
+#   1. Create a dedicated Unix user (example: htrbot) — not root.
+#   2. Clone the repo and create .venv; set WorkingDirectory / ExecStart paths below.
+#   3. Copy .env.example to .env in the repo root (or point EnvironmentFile elsewhere).
+#   4. If using HTR_STATE_FILE under /var/lib/..., create the directory and chown to User.
+#
+# Install (from repo root, after editing paths):
+#   sudo install -m 0644 deploy/habr-tech-radar.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+
+[Unit]
+Description=Habr Tech Radar (one-shot RSS pipeline)
+Documentation=file:///home/htrbot/habr-tech-radar-bot/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=htrbot
+Group=htrbot
+
+# Git clone root — pydantic loads .env from cwd; relative HTR_STATE_FILE resolves here too.
+WorkingDirectory=/home/htrbot/habr-tech-radar-bot
+
+# Optional: omit leading "-" once the file exists (leading "-" = ignore if missing).
+EnvironmentFile=-/home/htrbot/habr-tech-radar-bot/.env
+Environment=PYTHONUNBUFFERED=1
+
+# Absolute path to the venv console script (adjust clone path / venv location).
+ExecStart=/home/htrbot/habr-tech-radar-bot/.venv/bin/habr-tech-radar
+
+# Kill stuck runs (RSS + Telegram); increase if feeds are very slow.
+TimeoutStartSec=600
+
+# Timer schedules the next run; do not auto-restart failed jobs in a tight loop.
+Restart=no
+
+# Hardening (optional; uncomment if compatible with your layout)
+# NoNewPrivileges=true
+# PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -25,11 +25,17 @@
 - `HTR_DRY_RUN`: при `true` нет внешних вызовов Telegram; при `false` без токена/chat id — fail-fast в `default_components`
 - Тесты: форматирование, dry_run без сети, форма POST, wiring, экранирование
 
+## Сделано (VM / systemd slice)
+
+- Каталог `deploy/`: `habr-tech-radar.service` (oneshot), `habr-tech-radar.timer`, `install_vm.sh`
+- `HTR_PROJECT_ROOT` и `effective_state_file()` для предсказуемого пути к JSON state на VM
+- CLI: `TelegramConfigurationError` → код выхода 2, одна строка в лог
+- Документация: README (Ubuntu VM), HANDOFF, `.env.example`
+
 ## Дальше
 
-- Планировщик / периодический запуск (cron и т.д.) — вне этого репозитория или отдельный slice
 - По желанию: `LLMEnrichment` с OpenAI (за интерфейсом, через env)
-- По желанию: retry/rate limit для Telegram, батчи
+- По желанию: retry/rate limit для Telegram, батчи; опционально `flock` вокруг `ExecStart` при перекрывающихся запусках
 
 ## Этап 2 (не начинать в этом репо без явного scope)
 

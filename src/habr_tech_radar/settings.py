@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     telegram_chat_id: str | None = Field(default=None)
     openai_api_key: str | None = Field(default=None)
 
+    project_root: Path | None = Field(
+        default=None,
+        description="If set, relative HTR_STATE_FILE is resolved under this directory (not cwd)",
+    )
+
     habr_rss_urls: list[str] = Field(
         default_factory=lambda: list(_DEFAULT_HABR_RSS_URLS),
         description="Comma- or newline-separated Habr RSS feed URLs",
@@ -133,3 +138,26 @@ class Settings(BaseSettings):
         if isinstance(v, Path):
             return v
         return Path(str(v))
+
+    @field_validator("project_root", mode="before")
+    @classmethod
+    def project_root_path(cls, v: object) -> Path | None:
+        if v is None:
+            return None
+        s = str(v).strip()
+        if not s:
+            return None
+        return Path(s)
+
+
+def effective_state_file(settings: Settings) -> Path:
+    """Resolve HTR_STATE_FILE for persistence.
+
+    Absolute paths are unchanged; relative paths use cwd or HTR_PROJECT_ROOT.
+    """
+    p = settings.state_file
+    if p.is_absolute():
+        return p.resolve()
+    if settings.project_root is not None:
+        return (settings.project_root / p).resolve()
+    return (Path.cwd() / p).resolve()

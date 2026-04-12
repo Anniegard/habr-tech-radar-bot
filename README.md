@@ -18,6 +18,7 @@ Personal **tech radar**: monitor new Habr articles, filter interesting ones, sco
 ```text
 src/habr_tech_radar/   # Application package (settings, pipeline, models, services)
 tests/                 # Pytest suite
+deploy/                # systemd unit templates + install_vm.sh for Ubuntu VM
 scripts/               # Optional future CLI helpers
 config/                # Reserved for future rules (YAML/JSON)
 project-docs/          # PRD, architecture, tasks, handoff, decisions
@@ -40,6 +41,95 @@ python -m pre_commit install
 ```
 
 Скопируйте `.env.example` в `.env`, если нужны нестандартные значения (для демо-режима без сети `.env` не обязателен).
+
+## Ubuntu VM (git, venv, systemd)
+
+Приложение остаётся **одноразовым** (один запуск — один проход пайплайна). Периодический запуск делается **снаружи** через **systemd timer** (не APScheduler и не циклы в Python).
+
+### Требования на сервере
+
+- Ubuntu (или совместимый systemd), **Python 3.12**. Если в дистрибутиве нет 3.12, используйте [deadsnakes](https://launchpad.net/~deadsnakes/+archive/ubuntu/ppa) или официальные пакеты вашей версии ОС.
+- Пользователь Unix **не root** для запуска сервиса (в шаблонах ниже пример `htrbot`).
+
+### Клонирование и обновление
+
+```bash
+sudo useradd -r -m -s /bin/bash htrbot   # или свой пользователь
+sudo -u htrbot -i
+cd ~
+git clone https://github.com/YOUR_ORG/habr-tech-radar-bot.git
+cd habr-tech-radar-bot
+# обновления:
+git pull origin main
+```
+
+### Виртуальное окружение и зависимости
+
+Из корня репозитория:
+
+```bash
+chmod +x deploy/install_vm.sh
+./deploy/install_vm.sh
+# с dev-зависимостями (отладка на VM): ./deploy/install_vm.sh --dev
+```
+
+Скрипт создаёт `.venv`, ставит пакет в editable-режиме (`pip install -e .`) и печатает пути. Секреты в скрипт **не** вшиты.
+
+### Конфигурация `.env`
+
+```bash
+cp .env.example .env
+chmod 600 .env
+nano .env   # или редактор по вкусу
+```
+
+Заполните как минимум режим и Telegram (для боя): `HTR_DRY_RUN`, `HTR_TELEGRAM_BOT_TOKEN`, `HTR_TELEGRAM_CHAT_ID`. Для **просмотра без отправки** оставьте `HTR_DRY_RUN=true` — HTTP к Telegram не выполняется, сообщения пишутся в лог как «would send».
+
+Для постоянного state-файла вне домашнего каталога задайте абсолютный `HTR_STATE_FILE` (и при необходимости `HTR_PROJECT_ROOT` — см. `.env.example`). Создайте каталог и выставьте владельца под пользователя сервиса:
+
+```bash
+sudo mkdir -p /var/lib/htrbot/habr-tech-radar
+sudo chown -R htrbot:htrbot /var/lib/htrbot
+```
+
+### systemd: service + timer
+
+1. Отредактируйте пути в [`deploy/habr-tech-radar.service`](deploy/habr-tech-radar.service) и [`deploy/habr-tech-radar.timer`](deploy/habr-tech-radar.timer): `User`, `Group`, `WorkingDirectory`, `ExecStart`, `EnvironmentFile`, при необходимости `Documentation=`.
+2. Установите юниты и включите таймер (сначала venv от обычного пользователя — см. выше; копирование в `/etc` — от root):
+
+```bash
+sudo /path/to/habr-tech-radar-bot/deploy/install_vm.sh --install-systemd
+# или вручную:
+sudo install -m 0644 deploy/habr-tech-radar.service /etc/systemd/system/
+sudo install -m 0644 deploy/habr-tech-radar.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now habr-tech-radar.timer
+```
+
+Таймер по умолчанию: **каждый час в :17** (см. `OnCalendar` в unit). `RandomizedDelaySec` слегка размазывает старт. Если длительность прогона может превысить интервал, возможен **перекрывающийся** второй запуск — увеличьте интервал, уменьшите `TimeoutStartSec` только осторожно, или оберните команду в `flock` (см. комментарии в `deploy/habr-tech-radar.timer`).
+
+### Управление и логи
+
+```bash
+sudo systemctl start habr-tech-radar.service      # разовый запуск вручную
+sudo systemctl status habr-tech-radar.timer
+sudo systemctl list-timers habr-tech-radar.timer
+journalctl -u habr-tech-radar.service -f
+journalctl -u habr-tech-radar.service -n 200 --no-pager
+```
+
+В unit задано `PYTHONUNBUFFERED=1`, чтобы строки лога сразу попадали в journal.
+
+### Ручной запуск для отладки
+
+```bash
+cd /path/to/habr-tech-radar-bot
+source .venv/bin/activate
+set -a; source .env; set +a   # если не полагаетесь на pydantic .env
+python -m habr_tech_radar
+```
+
+При ошибке конфигурации живой Telegram без учётных данных процесс завершится с **кодом 2** и одной строкой в логе (без утечки секретов).
 
 ## Команды
 
@@ -77,7 +167,8 @@ python -m habr_tech_radar
 - `HTR_DRY_RUN` — по умолчанию `true`: сообщения **форматируются** и пишутся в лог как «would send», **без** HTTP к Telegram. Для реальной отправки задайте `false` и токен + chat id.
 - `HTR_DEMO_MODE` — при `true` ingestion возвращает одну синтетическую статью (без сети)
 - `HTR_HABR_RSS_URLS` — один или несколько URL RSS (через запятую или пробел). По умолчанию лента русскоязычных статей Habr. Пустое значение отключает запросы (для тестов/CI).
-- `HTR_STATE_FILE` — путь к JSON-файлу с уже виденными `id` статей; по умолчанию `.habr_tech_radar_seen.json` в текущей директории. Повторный запуск с тем же фидом обычно не дублирует статьи.
+- `HTR_STATE_FILE` — путь к JSON-файлу с уже виденными `id` статей; по умолчанию `.habr_tech_radar_seen.json` относительно текущей рабочей директории (для systemd задайте `WorkingDirectory` в корень клона или используйте абсолютный путь). Повторный запуск с тем же фидом обычно не дублирует статьи.
+- `HTR_PROJECT_ROOT` — если задан, **относительный** `HTR_STATE_FILE` резолвится от этого каталога (удобно, когда cwd не совпадает с каталогом данных).
 - `HTR_RSS_FETCH_TIMEOUT_SECONDS` — таймаут HTTP на каждый RSS-запрос (по умолчанию `30`).
 - `HTR_TELEGRAM_BOT_TOKEN`, `HTR_TELEGRAM_CHAT_ID` — для **живой** доставки при `HTR_DRY_RUN=false` (оба непустые). Бот: [@BotFather](https://t.me/BotFather); **chat id** — ваш user id или id группы (удобно узнать через [@userinfobot](https://t.me/userinfobot) или аналоги). При `HTR_DRY_RUN=true` можно оставить пустыми.
 - `HTR_OPENAI_API_KEY` — зарезервировано под будущий `LLMEnrichment` (пока не используется).
@@ -110,7 +201,7 @@ python -m habr_tech_radar
 
 1. Установите `HTR_TELEGRAM_BOT_TOKEN` и `HTR_TELEGRAM_CHAT_ID`.
 2. Установите `HTR_DRY_RUN=false`.
-3. Запустите пайплайн (например `python -m habr_tech_radar`). Если `HTR_DRY_RUN=false`, а токен или chat id пустые, приложение завершится с ошибкой конфигурации при сборке компонентов (fail-fast).
+3. Запустите пайплайн (например `python -m habr_tech_radar`). Если `HTR_DRY_RUN=false`, а токен или chat id пустые, приложение завершится с **кодом выхода 2** и одной строкой ошибки в логе (fail-fast, без traceback).
 
 ## Работа с агентами (Cursor)
 
@@ -122,9 +213,9 @@ python -m habr_tech_radar
 
 По мотивам `project-docs/TASKS.md`:
 
-1. Планировщик / периодический запуск (cron, systemd, GitHub Actions и т.д.).
-2. По желанию — **LLM enrichment** за существующим интерфейсом (`OpenAI` и др.).
-3. По желанию — вынести часть правил в `config/`; при росте состояния — SQLite вместо JSON.
+1. По желанию — **LLM enrichment** за существующим интерфейсом (`OpenAI` и др.).
+2. По желанию — вынести часть правил в `config/`; при росте состояния — SQLite вместо JSON.
+3. Операционные улучшения: retry/rate limit Telegram, блокировка перекрывающихся запусков (`flock`), мониторинг.
 
 ## License
 

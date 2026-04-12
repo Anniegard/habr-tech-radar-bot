@@ -72,9 +72,7 @@ def format_radar_item_html(item: RadarItem) -> str:
         lines.extend(["", "<b>Summary</b>", html.escape(article.summary, quote=False)])
 
     if item.enriched_summary:
-        lines.extend(
-            ["", "<b>Enriched</b>", html.escape(item.enriched_summary, quote=False)]
-        )
+        lines.extend(["", "<b>Enriched</b>", html.escape(item.enriched_summary, quote=False)])
 
     return "\n".join(lines).strip()
 

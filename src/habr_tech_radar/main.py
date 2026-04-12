@@ -4,6 +4,7 @@ import argparse
 import logging
 import sys
 
+from habr_tech_radar.delivery.http_telegram import TelegramConfigurationError
 from habr_tech_radar.logging_config import configure_logging
 from habr_tech_radar.pipeline import default_components, run_pipeline
 from habr_tech_radar.settings import Settings
@@ -30,8 +31,12 @@ def main(argv: list[str] | None = None) -> int:
         settings.dry_run,
         settings.demo_mode,
     )
-    components = default_components(settings)
-    run_pipeline(components)
+    try:
+        components = default_components(settings)
+        run_pipeline(components)
+    except TelegramConfigurationError as e:
+        logger.error("%s", e)
+        return 2
     return 0
 
 

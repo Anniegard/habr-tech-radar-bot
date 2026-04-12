@@ -32,3 +32,12 @@
 - Тесты: парсинг RSS из фикстуры, два запуска с одним фидом (второй пустой), битый state-файл, пайплайн демо / пустой список URL.
 
 **Дальше:** реальный `TelegramDelivery` и/или правила `ArticleFilter` / scoring.
+
+## 2026-04-12 — Ubuntu VM и systemd timer
+
+- Добавлены `deploy/habr-tech-radar.service` (oneshot), `deploy/habr-tech-radar.timer` (расписание вне Python), `deploy/install_vm.sh` (venv + опциональная установка unit-файлов от root).
+- Настройки: `HTR_PROJECT_ROOT`, функция `effective_state_file()` для резолва `HTR_STATE_FILE`; `SeenArticleStore` использует итоговый путь.
+- `main`: перехват `TelegramConfigurationError`, код выхода 2; тесты в `tests/test_paths.py`.
+- Обновлены README, HANDOFF, TASKS, `.env.example`, CHANGELOG.
+
+**Дальше:** LLM за интерфейсом; операционные улучшения (retry, flock) по необходимости.

@@ -122,9 +122,7 @@ class HttpTelegramDelivery:
                 raw = resp.read()
         except HTTPError as e:
             err_body = e.read().decode("utf-8", errors="replace")[:500]
-            raise RuntimeError(
-                f"Telegram HTTP {e.code} for sendMessage: {err_body}"
-            ) from e
+            raise RuntimeError(f"Telegram HTTP {e.code} for sendMessage: {err_body}") from e
         except URLError as e:
             raise RuntimeError(f"Telegram network error: {e!s}") from e
 
