@@ -186,6 +186,7 @@ python -m habr_tech_radar
 - `HTR_TELEGRAM_BOT_TOKEN`, `HTR_TELEGRAM_CHAT_ID` — для **живой** доставки при `HTR_DRY_RUN=false` (оба непустые). Бот: [@BotFather](https://t.me/BotFather); **chat id** — ваш user id или id группы (удобно узнать через [@userinfobot](https://t.me/userinfobot) или аналоги). При `HTR_DRY_RUN=true` можно оставить пустыми.
 - `HTR_TELEGRAM_SEND_MAX_ATTEMPTS`, `HTR_TELEGRAM_RETRY_BASE_SECONDS` — лимит попыток `sendMessage` на статью и базовая задержка для backoff (см. `.env.example`).
 - `HTR_TELEGRAM_MAX_DELIVERY_SECONDS` — общий лимит времени (монотонные секунды) на всю фазу доставки в Telegram; по умолчанию `240`.
+- `HTR_TELEGRAM_FORMAT_MODE` — `prod` (компактные сообщения по умолчанию) или `debug` (полный разбор score и сигналов).
 - `HTR_LAST_RUN_PATH` — путь к JSON последнего прогона (атомарная запись); по умолчанию `.runtime/last_run.json` (относительный путь резолвится как `HTR_STATE_FILE`, см. `HTR_PROJECT_ROOT`).
 - `HTR_HEALTH_MAX_AGE_MINUTES` — для `--health-summary`: максимальный возраст `finished_at_utc` в минутах, чтобы считать прогон «свежим»; по умолчанию `180`.
 - `HTR_PIPELINE_LOCK_FILE` — путь к файлу блокировки для [`deploy/run_once.sh`](deploy/run_once.sh) (обычно задаётся в systemd, не в `.env`).
@@ -197,7 +198,7 @@ python -m habr_tech_radar
 
 - **Исключения (`HTR_EXCLUDE_*`)**: если сработало — статья **сразу отбрасывается** и не попадает в скоринг.
 - **Включения (`HTR_INCLUDE_*`)**: если оба списка (`INCLUDE_KEYWORDS` и `INCLUDE_HUBS`) **пусты** — режим **пермиссивный** (действуют только исключения). Если хотя бы один список непустой — статья проходит фильтр, если есть совпадение **хотя бы по одному** ключевому слову **или** хабу (логика **ИЛИ**).
-- **Скоринг**: целочисленные очки за совпадения include-ключей и хабов, бонус за ключ в **заголовке**, линейный **бонус свежести** по дате публикации. Веса настраиваются (`HTR_SCORE_WEIGHT_*`, окно свежести `HTR_SCORE_RECENCY_WINDOW_DAYS`). У каждой оценки есть структура `ScoreExplanation` (совпадения и разбивка по компонентам) — удобно для отладки и будущего Telegram.
+- **Скоринг**: целочисленные очки с **уровнями сигналов** (приоритет: strong → technical → include): встроенные списки `HTR_SCORE_STRONG_KEYWORDS` и `HTR_SCORE_TECHNICAL_KEYWORDS` (или пустые строки, чтобы отключить встроенные дефолты), обычные include-ключи и хабы, бонус за появление сигнала в **заголовке**, линейный **бонус свежести** (по умолчанию меньше, чем раньше: `HTR_SCORE_WEIGHT_RECENCY_MAX`, опционально жёсткий потолок `HTR_SCORE_RECENCY_MAX_POINTS` вместо него), **штрафы** за совпадения из `HTR_SCORE_NEGATIVE_KEYWORDS` (`HTR_SCORE_WEIGHT_PENALTY_PER_HIT` за каждое совпадение). Итоговые очки не уходят ниже нуля. Веса: `HTR_SCORE_WEIGHT_STRONG_KEYWORD`, `HTR_SCORE_WEIGHT_TECHNICAL_SIGNAL`, `HTR_SCORE_WEIGHT_INCLUDE_KEYWORD`, остальные — см. `.env.example`. У каждой оценки — `ScoreExplanation` (совпадения по группам, `breakdown`, краткое `selection_summary`).
 - **Ранжирование**: сортировка по убыванию очков; при равенстве — **новее по дате**, затем по `id` для стабильности. В выдачу попадает не больше **`HTR_MAX_SELECTED_ARTICLES`** (по умолчанию `20`).
 
 ### Режим RSS и дедупликация
@@ -213,7 +214,12 @@ python -m habr_tech_radar
 
 ### Сообщение в Telegram (HTML)
 
-Одна статья — одно сообщение. Текст строится в [`format_radar_item_html`](src/habr_tech_radar/delivery/html_message.py): заголовок, очки, время публикации (UTC), ссылка (`parse_mode=HTML`), кратко **почему такой score** (совпадения include, разбивка по компонентам из `ScoreExplanation`), при необходимости summary. Пользовательский контент экранируется; длинные тексты обрезаются до лимита Telegram (~4096 символов) с пометкой «truncated».
+Одна статья — одно сообщение. Режим задаётся **`HTR_TELEGRAM_FORMAT_MODE`**:
+
+- **`prod`** (по умолчанию): короткое user-facing сообщение — заголовок, score, дата публикации (UTC), строка «Почему выбрано» из сигналов, укороченный summary, **ссылка без `utm_*` / `fbclid` / `gclid`** в query.
+- **`debug`**: полная диагностика — совпадения по группам (strong / technical / include / hubs / negative), разбивка очков по компонентам, заметки (`reasons`), полный summary.
+
+Текст строится в [`format_radar_item_html`](src/habr_tech_radar/delivery/html_message.py) (`parse_mode=HTML`). Пользовательский контент экранируется; длинные тексты обрезаются до лимита Telegram (~4096 символов) с пометкой «truncated».
 
 ### Реальная отправка
 

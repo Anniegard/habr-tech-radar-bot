@@ -325,7 +325,7 @@ class HttpTelegramDelivery:
         return sent, 0
 
     def _format_and_truncate(self, item: RadarItem) -> tuple[str, bool]:
-        raw = format_radar_item_html(item)
+        raw = format_radar_item_html(item, format_mode=self._settings.telegram_format_mode)
         return truncate_for_telegram(raw)
 
     def _send_dry_run(self, items: list[RadarItem]) -> None:

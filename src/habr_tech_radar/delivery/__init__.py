@@ -1,4 +1,7 @@
-from habr_tech_radar.delivery.html_message import format_radar_item_html
+from habr_tech_radar.delivery.html_message import (
+    format_radar_item_html,
+    strip_tracking_query_params,
+)
 from habr_tech_radar.delivery.http_telegram import (
     HttpTelegramDelivery,
     TelegramConfigurationError,
@@ -14,5 +17,6 @@ __all__ = [
     "TelegramDelivery",
     "TelegramDeliveryError",
     "format_radar_item_html",
+    "strip_tracking_query_params",
     "telegram_credentials_ok",
 ]

@@ -8,6 +8,25 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _DEFAULT_HABR_RSS_URLS: tuple[str, ...] = ("https://habr.com/ru/rss/articles/",)
 
+# Built-in scoring lexicons (comma-separated defaults; override via HTR_SCORE_*_KEYWORDS).
+_DEFAULT_SCORE_STRONG_KEYWORDS: str = (
+    "LLM,RAG,MCP,LangChain,OpenAI API,OpenAI,vector db,vector database,embedding,"
+    "embeddings,inference,fine-tuning,fine tuning,prompt engineering,function calling,"
+    "retrieval,benchmark,evaluation,production pipeline,pipeline,FastAPI,gRPC,asyncio,"
+    "REST API,GraphQL,WebSocket,microservices,microservice,pytest,typing,LangGraph,"
+    "agent framework,AI agent,инференс,дообучение,эмбеддинг,микросервис,бэкенд"
+)
+_DEFAULT_SCORE_TECHNICAL_KEYWORDS: str = (
+    "Kubernetes,Docker,PostgreSQL,Redis,CI/CD,observability,tracing,Prometheus,"
+    "GitHub Actions,Terraform,nginx,kafka,messaging,backend,distributed system,"
+    "race condition,memory leak,profiling,latency,SRE,DevOps,мониторинг,контейнер"
+)
+_DEFAULT_SCORE_NEGATIVE_KEYWORDS: str = (
+    "smart home,умный дом,гаджет,обзор смартфона,топ-10,топ 10,шокирующ,кликбейт,"
+    "своими руками,DIY без,спонсор поста,sponsored,честный обзор,лучшие подборки,"
+    "умная колонка,робот-пылесос,кухонный комбайн,фитнес-браслет"
+)
+
 
 def parse_comma_separated_list(v: object) -> list[str]:
     """Parse env list: comma/whitespace separated, strip, drop empties."""
@@ -63,6 +82,10 @@ class Settings(BaseSettings):
         ge=1.0,
         le=3600.0,
         description="Monotonic time budget for the Telegram delivery phase (live and dry_run)",
+    )
+    telegram_format_mode: str = Field(
+        default="prod",
+        description="Telegram HTML layout: prod (compact) or debug (full score breakdown)",
     )
     last_run_path: Path = Field(
         default=Path(".runtime/last_run.json"),
@@ -122,16 +145,54 @@ class Settings(BaseSettings):
         ge=0,
         description="Points per include keyword hit",
     )
+    score_weight_strong_keyword: int = Field(
+        default=12,
+        ge=0,
+        description="Points per strong/high-signal keyword hit",
+    )
+    score_weight_technical_signal: int = Field(
+        default=10,
+        ge=0,
+        description="Points per technical/contextual keyword hit",
+    )
+    score_weight_penalty_per_hit: int = Field(
+        default=4,
+        ge=0,
+        description="Points subtracted per negative/noise keyword hit",
+    )
     score_weight_include_hub: int = Field(default=8, ge=0, description="Points per include hub hit")
     score_weight_title_match_bonus: int = Field(
         default=3,
         ge=0,
-        description="Extra points when an include keyword appears in the title",
+        description=(
+            "Extra points when a scored keyword (include/strong/technical) appears in the title"
+        ),
+    )
+    score_strong_keywords: str = Field(
+        default=_DEFAULT_SCORE_STRONG_KEYWORDS,
+        description="Comma-separated strong signals for scoring (substring, case-insensitive)",
+    )
+    score_technical_keywords: str = Field(
+        default=_DEFAULT_SCORE_TECHNICAL_KEYWORDS,
+        description="Comma-separated technical signals for scoring",
+    )
+    score_negative_keywords: str = Field(
+        default=_DEFAULT_SCORE_NEGATIVE_KEYWORDS,
+        description="Comma-separated noise indicators (penalty per hit)",
     )
     score_weight_recency_max: int = Field(
-        default=10,
+        default=4,
         ge=0,
-        description="Max recency bonus (linear decay over the window)",
+        description=(
+            "Max recency bonus (linear decay over the window). Env: HTR_SCORE_WEIGHT_RECENCY_MAX"
+        ),
+    )
+    score_recency_max_points: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "If set, overrides score_weight_recency_max (env: HTR_SCORE_RECENCY_MAX_POINTS)"
+        ),
     )
     score_recency_window_days: float = Field(
         default=14.0,
@@ -143,6 +204,27 @@ class Settings(BaseSettings):
     @classmethod
     def log_level_upper(cls, v: str) -> str:
         return v.upper()
+
+    @field_validator("telegram_format_mode", mode="before")
+    @classmethod
+    def telegram_format_mode_norm(cls, v: object) -> str:
+        if v is None:
+            return "prod"
+        s = str(v).strip().casefold()
+        if s in ("prod", "production"):
+            return "prod"
+        if s in ("debug", "dev", "development"):
+            return "debug"
+        raise ValueError("HTR_TELEGRAM_FORMAT_MODE must be prod or debug")
+
+    @field_validator("score_recency_max_points", mode="before")
+    @classmethod
+    def empty_recency_override_to_none(cls, v: object) -> object:
+        if v is None:
+            return None
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
 
     @field_validator("habr_rss_urls", mode="before")
     @classmethod
@@ -205,3 +287,10 @@ def effective_last_run_path(settings: Settings) -> Path:
     if settings.project_root is not None:
         return (settings.project_root / p).resolve()
     return (Path.cwd() / p).resolve()
+
+
+def effective_recency_max_points(settings: Settings) -> int:
+    """Max recency bonus: HTR_SCORE_RECENCY_MAX_POINTS overrides HTR_SCORE_WEIGHT_RECENCY_MAX."""
+    if settings.score_recency_max_points is not None:
+        return settings.score_recency_max_points
+    return settings.score_weight_recency_max

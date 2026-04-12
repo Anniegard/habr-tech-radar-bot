@@ -6,13 +6,20 @@ from habr_tech_radar.settings import Settings, parse_comma_separated_list
 
 
 def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("HTR_LOG_LEVEL", raising=False)
-    monkeypatch.delenv("HTR_DRY_RUN", raising=False)
-    monkeypatch.delenv("HTR_DEMO_MODE", raising=False)
+    monkeypatch.setenv("HTR_LOG_LEVEL", "INFO")
+    monkeypatch.setenv("HTR_DRY_RUN", "true")
+    monkeypatch.setenv("HTR_DEMO_MODE", "false")
     s = Settings()
     assert s.log_level == "INFO"
     assert s.dry_run is True
     assert s.demo_mode is False
+
+
+def test_telegram_format_mode_accepts_aliases(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HTR_TELEGRAM_FORMAT_MODE", "DEBUG")
+    assert Settings().telegram_format_mode == "debug"
+    monkeypatch.setenv("HTR_TELEGRAM_FORMAT_MODE", "production")
+    assert Settings().telegram_format_mode == "prod"
 
 
 def test_settings_env_override(monkeypatch: pytest.MonkeyPatch) -> None:

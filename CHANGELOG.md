@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Скоринг: уровни strong / technical / include, штрафы по negative keywords, сниженный вклад свежести; `ScoreExplanation` расширен; Telegram: режимы `HTR_TELEGRAM_FORMAT_MODE=prod|debug`, очистка tracking-параметров в ссылке.
+
 ### 2026-04-12
 
 - Операции на VM: `deploy/run_once.sh` с `flock` (по умолчанию `/var/lib/habr-tech-radar/pipeline.lock`, переопределение `HTR_PIPELINE_LOCK_FILE`); при занятой блокировке — сообщение `skip: overlap`, код выхода 0. `habr-tech-radar.service` вызывает wrapper вместо прямого `habr-tech-radar`.

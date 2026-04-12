@@ -45,8 +45,8 @@ def test_effective_last_run_path_matches_state_rules(
 
 def test_main_returns_2_when_live_telegram_not_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HTR_DRY_RUN", "false")
-    monkeypatch.delenv("HTR_TELEGRAM_BOT_TOKEN", raising=False)
-    monkeypatch.delenv("HTR_TELEGRAM_CHAT_ID", raising=False)
+    monkeypatch.setenv("HTR_TELEGRAM_BOT_TOKEN", "")
+    monkeypatch.setenv("HTR_TELEGRAM_CHAT_ID", "")
     monkeypatch.setenv("HTR_DEMO_MODE", "true")
     assert main([]) == 2
 

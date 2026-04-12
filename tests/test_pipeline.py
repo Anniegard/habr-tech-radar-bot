@@ -5,7 +5,15 @@ from habr_tech_radar.settings import Settings
 
 
 def test_pipeline_demo_produces_one_item() -> None:
-    components = default_components(Settings(demo_mode=True))
+    components = default_components(
+        Settings(
+            demo_mode=True,
+            include_keywords="",
+            include_hubs="",
+            exclude_keywords="",
+            exclude_hubs="",
+        )
+    )
     result = run_pipeline(components)
     assert len(result.items) == 1
     assert result.items[0].score.article.id == "demo-1"

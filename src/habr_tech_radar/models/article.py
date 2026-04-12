@@ -30,8 +30,15 @@ class ScoreExplanation(BaseModel):
 
     matched_include_keywords: list[str] = Field(default_factory=list)
     matched_exclude_keywords: list[str] = Field(default_factory=list)
+    matched_strong_keywords: list[str] = Field(default_factory=list)
+    matched_technical_keywords: list[str] = Field(default_factory=list)
+    matched_negative_keywords: list[str] = Field(default_factory=list)
     matched_include_hubs: list[str] = Field(default_factory=list)
     breakdown: dict[str, int] = Field(default_factory=dict)
+    selection_summary: str | None = Field(
+        default=None,
+        description="Short human-facing 'why selected' line (strong/tech/include signals)",
+    )
 
 
 class ArticleScore(BaseModel):

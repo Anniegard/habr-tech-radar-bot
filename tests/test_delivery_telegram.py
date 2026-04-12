@@ -14,6 +14,7 @@ from habr_tech_radar.delivery import http_telegram as http_telegram_mod
 from habr_tech_radar.delivery.html_message import (
     TELEGRAM_MAX_MESSAGE_LENGTH,
     format_radar_item_html,
+    strip_tracking_query_params,
     truncate_for_telegram,
 )
 from habr_tech_radar.delivery.http_telegram import (
@@ -63,12 +64,62 @@ def test_format_radar_item_html_escapes_user_content() -> None:
             breakdown={"include_keywords": 10},
         ),
     )
-    html = format_radar_item_html(item)
+    html = format_radar_item_html(item, format_mode="debug")
     assert "<script>" not in html
     assert "&lt;script&gt;" in html
     assert "&lt;b&gt;bold&lt;/b&gt;" in html
     assert "&amp;" in html
     assert "python" in html
+
+
+def test_strip_tracking_query_params_removes_utm() -> None:
+    u = "https://habr.com/ru/post/1/?utm_source=telegram&foo=bar"
+    assert "utm_" not in strip_tracking_query_params(u)
+    assert "foo=bar" in strip_tracking_query_params(u)
+
+
+def test_format_prod_compact_no_internal_breakdown_dump() -> None:
+    item = _radar_with(
+        expl=ScoreExplanation(
+            matched_include_keywords=["AI"],
+            breakdown={"include_keywords": 5, "recency": 2},
+            selection_summary="LLM, RAG",
+        ),
+    )
+    html = format_radar_item_html(item, format_mode="prod")
+    assert "breakdown=" not in html
+    assert "Score breakdown" not in html
+    assert "LLM" in html
+    assert "Habr Tech Radar" in html
+
+
+def test_format_debug_includes_breakdown_sections() -> None:
+    item = _radar_with(
+        expl=ScoreExplanation(
+            matched_strong_keywords=["LLM"],
+            breakdown={"strong_keywords": 12, "recency": 2},
+            selection_summary="LLM",
+        ),
+    )
+    html = format_radar_item_html(item, format_mode="debug")
+    assert "Score breakdown" in html
+    assert "Strong:" in html
+    assert "(debug)" in html
+
+
+def test_format_prod_strips_utm_from_href() -> None:
+    article = Article.model_validate(
+        {
+            "id": "u1",
+            "title": "T",
+            "url": "https://habr.com/ru/post/1/?utm_campaign=x&utm_medium=email",
+            "published_at": datetime(2026, 1, 15, 12, 30, tzinfo=UTC),
+        }
+    )
+    score = ArticleScore(article=article, points=1, explanation=ScoreExplanation())
+    item = RadarItem(score=score)
+    html = format_radar_item_html(item, format_mode="prod")
+    assert "utm_" not in html
 
 
 def test_truncate_for_telegram_adds_suffix() -> None:
