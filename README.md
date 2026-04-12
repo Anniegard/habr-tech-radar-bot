@@ -1,13 +1,13 @@
 # Habr Tech Radar Bot
 
-Personal **tech radar**: monitor new Habr articles, filter interesting ones, score them, and deliver selected items to Telegram. This repository contains the **open MVP foundation** only—stubs and interfaces—not full Habr, Telegram, or OpenAI integrations.
+Personal **tech radar**: monitor new Habr articles, filter interesting ones, score them, and deliver selected items to Telegram. This repository is **Stage 1**: real **RSS ingestion** with JSON-backed deduplication, plus stub filtering/scoring and log-only delivery—**not** full Telegram or OpenAI integrations yet.
 
 ## Цель MVP (этап 1)
 
 Небольшой типизированный пакет на Python:
 
 - Конфигурация через переменные окружения (префикс `HTR_`) и опционально `.env`
-- **Заглушка пайплайна**: ingestion → filtering → scoring → LLM (no-op) → delivery (только лог)
+- **Пайплайн**: RSS ingestion (не демо) → filtering → scoring → LLM (no-op) → delivery (только лог)
 - Тесты и инструменты разработки (Ruff, mypy, pytest, pre-commit)
 - Документация для людей и агентов
 
@@ -39,7 +39,7 @@ python -m pip install -e ".[dev]"
 python -m pre_commit install
 ```
 
-Скопируйте `.env.example` в `.env`, если нужны нестандартные значения (для заглушек не обязательно).
+Скопируйте `.env.example` в `.env`, если нужны нестандартные значения (для демо-режима без сети `.env` не обязателен).
 
 ## Команды
 
@@ -76,12 +76,19 @@ python -m habr_tech_radar
 - `HTR_LOG_LEVEL` — по умолчанию `INFO`
 - `HTR_DRY_RUN` — по умолчанию `true` (зарезервировано под будущее отключение побочных эффектов)
 - `HTR_DEMO_MODE` — при `true` ingestion возвращает одну синтетическую статью (без сети)
-- `HTR_TELEGRAM_BOT_TOKEN`, `HTR_TELEGRAM_CHAT_ID`, `HTR_OPENAI_API_KEY` — опционально; заглушки их не используют
+- `HTR_HABR_RSS_URLS` — один или несколько URL RSS (через запятую или пробел). По умолчанию лента русскоязычных статей Habr. Пустое значение отключает запросы (для тестов/CI).
+- `HTR_STATE_FILE` — путь к JSON-файлу с уже виденными `id` статей; по умолчанию `.habr_tech_radar_seen.json` в текущей директории. Повторный запуск с тем же фидом обычно не дублирует статьи.
+- `HTR_RSS_FETCH_TIMEOUT_SECONDS` — таймаут HTTP на каждый RSS-запрос (по умолчанию `30`).
+- `HTR_TELEGRAM_BOT_TOKEN`, `HTR_TELEGRAM_CHAT_ID`, `HTR_OPENAI_API_KEY` — опционально; доставка и LLM пока не подключены к внешним сервисам.
+
+### Режим RSS и дедупликация
+
+В обычном режиме (`HTR_DEMO_MODE=false`) приложение загружает указанные RSS-ленты по HTTP, парсит записи в модель `Article`, отбрасывает элементы с уже известными `id` (файл `HTR_STATE_FILE`) и возвращает в пайплайн только **новые** статьи. После успешного разбора новые `id` дописываются в JSON. Если процесс упал до сохранения, при следующем запуске часть статей может снова попасть в выдачу.
 
 ## Запуск
 
-- **По умолчанию** (нет статей, без сети): `python -m habr_tech_radar`
-- **Демо-пайплайн** (одна фейковая статья): `python -m habr_tech_radar --demo` или `HTR_DEMO_MODE=true`
+- **Обычный режим** (RSS, нужен интернет): `python -m habr_tech_radar` — статьи из ленты минус уже сохранённые id.
+- **Демо-пайплайн** (одна фейковая статья, без сети): `python -m habr_tech_radar --demo` или `HTR_DEMO_MODE=true`
 
 После установки пакета: консольная команда `habr-tech-radar`.
 
@@ -95,11 +102,9 @@ python -m habr_tech_radar
 
 По мотивам `project-docs/TASKS.md`:
 
-1. Реальный **Habr ingestion** (RSS/API) за интерфейсом `HabrIngestion`.
-2. **Хранение** последних виденных id статей (файл или SQLite).
-3. Замена заглушек **filtering** и **scoring** настраиваемыми правилами в `config/`.
-4. **Telegram**-доставка с token + chat id; учитывать `dry_run`.
-5. По желанию — **LLM enrichment** за существующим интерфейсом.
+1. Реальный **`TelegramDelivery`** с token + chat id; учитывать `dry_run`.
+2. Замена заглушек **filtering** и **scoring** настраиваемыми правилами в `config/`.
+3. По желанию — **LLM enrichment** за существующим интерфейсом; при необходимости — SQLite вместо JSON для состояния.
 
 ## License
 

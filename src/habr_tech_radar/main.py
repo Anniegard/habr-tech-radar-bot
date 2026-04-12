@@ -21,15 +21,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     settings = Settings()
-    demo = args.demo or settings.demo_mode
+    if args.demo:
+        settings = settings.model_copy(update={"demo_mode": True})
     configure_logging(settings.log_level)
 
     logger.info(
         "starting habr-tech-radar dry_run=%s demo=%s",
         settings.dry_run,
-        demo,
+        settings.demo_mode,
     )
-    components = default_components(demo_mode=demo)
+    components = default_components(settings)
     run_pipeline(components)
     return 0
 
