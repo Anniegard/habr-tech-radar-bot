@@ -112,7 +112,9 @@ sudo systemctl enable --now habr-tech-radar.timer
 
 Таймер по умолчанию: **каждый час в :17** (см. `OnCalendar` в unit). `RandomizedDelaySec` слегка размазывает старт.
 
-**Повторы Telegram:** при временных сбоях сети, HTTP **5xx** и **429** `sendMessage` повторяется ограниченное число раз с паузой (см. `HTR_TELEGRAM_SEND_MAX_ATTEMPTS`, `HTR_TELEGRAM_RETRY_BASE_SECONDS` в `.env.example`). В логах: `delivery: telegram: start|retry|summary`, без URL с токеном.
+**Повторы Telegram:** при временных сбоях сети, HTTP **5xx** и **429** `sendMessage` повторяется ограниченное число раз с паузой (см. `HTR_TELEGRAM_SEND_MAX_ATTEMPTS`, `HTR_TELEGRAM_RETRY_BASE_SECONDS` в `.env.example`). Повторы **не продолжаются за пределами** общего монотонного бюджета фазы доставки: `HTR_TELEGRAM_MAX_DELIVERY_SECONDS` (по умолчанию 240 с). В логах: `delivery: telegram: start|retry|summary`, без URL с токеном.
+
+**Снимок последнего прогона:** после каждого запуска пишется атомарно JSON в `HTR_LAST_RUN_PATH` (по умолчанию `.runtime/last_run.json` в рабочем каталоге; на VM удобно абсолютный путь, например под `/var/lib/...`). Для быстрой проверки по SSH: `python -m habr_tech_radar --health-summary` (код **0** только если последний прогон был **success**, файл свежий по `HTR_HEALTH_MAX_AGE_MINUTES`). Строки лога содержат **`run_id=`** на каждой записи (корреляция этапов в `journalctl`).
 
 ### Управление и логи
 
@@ -126,7 +128,7 @@ journalctl -u habr-tech-radar.service -n 200 --no-pager
 journalctl -u habr-tech-radar.service -g 'skip: overlap|delivery: telegram|TelegramConfigurationError'
 ```
 
-В unit задано `PYTHONUNBUFFERED=1`, чтобы строки лога сразу попадали в journal. Строки **`delivery: telegram:`** дают режим (`dry_run` / `live`), число отобранных статей, повторы и итог `sent` / `failed`.
+В unit задано `PYTHONUNBUFFERED=1`, чтобы строки лога сразу попадали в journal. Строки **`delivery: telegram:`** дают режим (`dry_run` / `live`), бюджет, число отобранных статей, повторы и итог `sent` / `failed` / `skipped_due_budget` / `remaining_budget_s`.
 
 ### Ручной запуск для отладки
 
@@ -137,7 +139,9 @@ set -a; source .env; set +a   # если не полагаетесь на pydant
 python -m habr_tech_radar
 ```
 
-Коды выхода: **0** — успех; **2** — нет токена/chat id при `HTR_DRY_RUN=false` (`TelegramConfigurationError`, одна строка в логе); **1** — после исчерпания повторов остались недоставленные сообщения (`TelegramDeliveryError`). Пропуск из‑за **flock** даёт код **0** и строку `skip: overlap` в логе.
+Коды выхода основного прогона: **0** — успех; **2** — нет токена/chat id при `HTR_DRY_RUN=false` (`TelegramConfigurationError`, одна строка в логе); **1** — неполная доставка (`TelegramDeliveryError`: остались `failed`, исчерпан глобальный бюджет доставки с `skipped_due_budget`, и т.п.). Пропуск из‑за **flock** даёт код **0** и строку `skip: overlap` в логе.
+
+Коды **`--health-summary`**: **0** — последний `last_run.json` есть, парсится, `status=success`, возраст в пределах `HTR_HEALTH_MAX_AGE_MINUTES`; **1** — файл отсутствует, битый, устаревший или статус не success; **2** — некорректные настройки (`Settings`).
 
 ## Команды
 
@@ -154,6 +158,7 @@ python -m habr_tech_radar
 | `make test`        | `pytest`                           |
 | `make precommit`   | `pre-commit run --all-files`       |
 | `make run`         | `python -m habr_tech_radar`        |
+| (ops)              | `python -m habr_tech_radar --health-summary` |
 
 
 Без Make — те же инструменты через `python -m`, например:
@@ -180,6 +185,9 @@ python -m habr_tech_radar
 - `HTR_RSS_FETCH_TIMEOUT_SECONDS` — таймаут HTTP на каждый RSS-запрос (по умолчанию `30`).
 - `HTR_TELEGRAM_BOT_TOKEN`, `HTR_TELEGRAM_CHAT_ID` — для **живой** доставки при `HTR_DRY_RUN=false` (оба непустые). Бот: [@BotFather](https://t.me/BotFather); **chat id** — ваш user id или id группы (удобно узнать через [@userinfobot](https://t.me/userinfobot) или аналоги). При `HTR_DRY_RUN=true` можно оставить пустыми.
 - `HTR_TELEGRAM_SEND_MAX_ATTEMPTS`, `HTR_TELEGRAM_RETRY_BASE_SECONDS` — лимит попыток `sendMessage` на статью и базовая задержка для backoff (см. `.env.example`).
+- `HTR_TELEGRAM_MAX_DELIVERY_SECONDS` — общий лимит времени (монотонные секунды) на всю фазу доставки в Telegram; по умолчанию `240`.
+- `HTR_LAST_RUN_PATH` — путь к JSON последнего прогона (атомарная запись); по умолчанию `.runtime/last_run.json` (относительный путь резолвится как `HTR_STATE_FILE`, см. `HTR_PROJECT_ROOT`).
+- `HTR_HEALTH_MAX_AGE_MINUTES` — для `--health-summary`: максимальный возраст `finished_at_utc` в минутах, чтобы считать прогон «свежим»; по умолчанию `180`.
 - `HTR_PIPELINE_LOCK_FILE` — путь к файлу блокировки для [`deploy/run_once.sh`](deploy/run_once.sh) (обычно задаётся в systemd, не в `.env`).
 - `HTR_OPENAI_API_KEY` — зарезервировано под будущий `LLMEnrichment` (пока не используется).
 

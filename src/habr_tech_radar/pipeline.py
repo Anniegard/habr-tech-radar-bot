@@ -6,9 +6,11 @@ from dataclasses import dataclass
 from habr_tech_radar.delivery.http_telegram import (
     HttpTelegramDelivery,
     TelegramConfigurationError,
+    TelegramDeliveryError,
     telegram_credentials_ok,
 )
 from habr_tech_radar.delivery.service import TelegramDelivery
+from habr_tech_radar.delivery.stats import DeliveryStats
 from habr_tech_radar.filtering.heuristic import HeuristicArticleFilter
 from habr_tech_radar.filtering.service import ArticleFilter
 from habr_tech_radar.ingestion.rss import RssHabrIngestion
@@ -25,6 +27,14 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
+class PipelineResult:
+    items: list[RadarItem]
+    fetched_count: int
+    selected_count: int
+    delivery_stats: DeliveryStats
+
+
+@dataclass(frozen=True)
 class PipelineComponents:
     ingestion: HabrIngestion
     article_filter: ArticleFilter
@@ -34,16 +44,32 @@ class PipelineComponents:
     max_selected_articles: int
 
 
-def run_pipeline(components: PipelineComponents) -> list[RadarItem]:
+def run_pipeline(components: PipelineComponents) -> PipelineResult:
     """Execute ingest → filter → score → enrich → deliver."""
     articles = components.ingestion.fetch_new()
+    fetched_count = len(articles)
     filtered = components.article_filter.filter(articles)
     scores = components.scoring.score(filtered)
     top = select_top_scored(scores, components.max_selected_articles)
+    logger.info("selection: top %d article(s) after ranking", len(top))
     items = components.llm.enrich(top)
-    components.delivery.send(items)
+    selected_count = len(items)
+    try:
+        delivery_stats = components.delivery.send(items)
+    except TelegramDeliveryError as e:
+        raise TelegramDeliveryError(
+            str(e),
+            stats=e.stats,
+            fetched_count=fetched_count,
+            selected_count=selected_count,
+        ) from e
     logger.info("pipeline: completed with %d radar item(s)", len(items))
-    return items
+    return PipelineResult(
+        items=items,
+        fetched_count=fetched_count,
+        selected_count=selected_count,
+        delivery_stats=delivery_stats,
+    )
 
 
 def _resolve_telegram_delivery(settings: Settings) -> TelegramDelivery:

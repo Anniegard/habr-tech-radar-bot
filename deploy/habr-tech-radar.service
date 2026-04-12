@@ -4,7 +4,7 @@
 #   1. Create a dedicated Unix user (example: htrbot) — not root.
 #   2. Clone the repo and create .venv; set WorkingDirectory / ExecStart paths below.
 #   3. Copy .env.example to .env in the repo root (or point EnvironmentFile elsewhere).
-#   4. If using HTR_STATE_FILE under /var/lib/..., create the directory and chown to User.
+#   4. If using HTR_STATE_FILE or HTR_LAST_RUN_PATH under /var/lib/..., create dirs and chown to User.
 #   5. For overlap lock (default /var/lib/habr-tech-radar/pipeline.lock): mkdir + chown that
 #      directory so the service user can create the lock file (see deploy/run_once.sh).
 #

@@ -357,6 +357,58 @@ def test_retry_logged_with_article_id(caplog: pytest.LogCaptureFixture) -> None:
     assert "article_id=x1" in joined
 
 
+def test_global_delivery_budget_skips_remaining_articles() -> None:
+    """After first send, monotonic clock jumps past deadline — no further HTTP or retries."""
+    clock = [0.0]
+
+    def mono() -> float:
+        return clock[0]
+
+    calls: list[int] = []
+
+    def fake_urlopen(req: Request, timeout: float = 0) -> Any:
+        calls.append(1)
+        clock[0] = 10.0
+        return _FakeHttpResponse(b'{"ok":true,"result":{"message_id":1}}')
+
+    item2 = RadarItem(
+        score=ArticleScore(
+            article=Article.model_validate(
+                {
+                    "id": "x2",
+                    "title": "Second",
+                    "url": "https://habr.com/ru/post/2/",
+                    "published_at": datetime(2026, 1, 15, 12, 30, tzinfo=UTC),
+                }
+            ),
+            points=1,
+            explanation=ScoreExplanation(),
+            reasons=[],
+        )
+    )
+    item1 = _radar_with()
+
+    delivery = HttpTelegramDelivery(
+        Settings(
+            dry_run=False,
+            telegram_bot_token="T",
+            telegram_chat_id="1",
+            telegram_max_delivery_seconds=1.0,
+            telegram_send_max_attempts=10,
+        ),
+        urlopen_impl=fake_urlopen,
+        sleep_fn=lambda _x: None,
+        monotonic_fn=mono,
+    )
+    with pytest.raises(TelegramDeliveryError) as excinfo:
+        delivery.send([item1, item2])
+    stats = excinfo.value.stats
+    assert stats is not None
+    assert stats.sent == 1
+    assert stats.skipped_due_budget == 1
+    assert len(calls) == 1
+
+
 def test_dry_run_logs_start_and_summary(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level("INFO")
 

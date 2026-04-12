@@ -9,6 +9,9 @@ __pycache__/
 venv/
 ENV/
 
+# Runtime state (default HTR_LAST_RUN_PATH)
+.runtime/
+
 # Environment
 .env
 .env.local

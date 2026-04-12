@@ -58,6 +58,21 @@ class Settings(BaseSettings):
         le=60.0,
         description="Base delay for exponential backoff between transient Telegram failures",
     )
+    telegram_max_delivery_seconds: float = Field(
+        default=240.0,
+        ge=1.0,
+        le=3600.0,
+        description="Monotonic time budget for the Telegram delivery phase (live and dry_run)",
+    )
+    last_run_path: Path = Field(
+        default=Path(".runtime/last_run.json"),
+        description="JSON snapshot of the last pipeline run (atomic write)",
+    )
+    health_max_age_minutes: float = Field(
+        default=180.0,
+        ge=1.0,
+        description="Health: max age (minutes) of finished_at_utc for a fresh last_run",
+    )
     openai_api_key: str | None = Field(default=None)
 
     project_root: Path | None = Field(
@@ -151,6 +166,13 @@ class Settings(BaseSettings):
             return v
         return Path(str(v))
 
+    @field_validator("last_run_path", mode="before")
+    @classmethod
+    def last_run_path_path(cls, v: object) -> Path:
+        if isinstance(v, Path):
+            return v
+        return Path(str(v))
+
     @field_validator("project_root", mode="before")
     @classmethod
     def project_root_path(cls, v: object) -> Path | None:
@@ -168,6 +190,16 @@ def effective_state_file(settings: Settings) -> Path:
     Absolute paths are unchanged; relative paths use cwd or HTR_PROJECT_ROOT.
     """
     p = settings.state_file
+    if p.is_absolute():
+        return p.resolve()
+    if settings.project_root is not None:
+        return (settings.project_root / p).resolve()
+    return (Path.cwd() / p).resolve()
+
+
+def effective_last_run_path(settings: Settings) -> Path:
+    """Resolve HTR_LAST_RUN_PATH for persistence (same rules as HTR_STATE_FILE)."""
+    p = settings.last_run_path
     if p.is_absolute():
         return p.resolve()
     if settings.project_root is not None:

@@ -14,6 +14,7 @@ from habr_tech_radar.delivery.html_message import (
     format_radar_item_html,
     truncate_for_telegram,
 )
+from habr_tech_radar.delivery.stats import DeliveryStats
 from habr_tech_radar.models.article import RadarItem
 from habr_tech_radar.settings import Settings
 
@@ -32,12 +33,29 @@ class _ItemSendFailed(Exception):
         self.reason = reason
 
 
+class _BudgetExhausted(Exception):
+    """Monotonic delivery budget exhausted before completing send/retry."""
+
+
 class TelegramConfigurationError(ValueError):
     """Settings are invalid for live Telegram delivery (missing token or chat id)."""
 
 
 class TelegramDeliveryError(RuntimeError):
     """One or more messages could not be delivered after retries (live mode)."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        stats: DeliveryStats | None = None,
+        fetched_count: int | None = None,
+        selected_count: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.stats = stats
+        self.fetched_count = fetched_count
+        self.selected_count = selected_count
 
 
 def telegram_credentials_ok(settings: Settings) -> bool:
@@ -142,31 +160,60 @@ class HttpTelegramDelivery:
         urlopen_impl: Callable[..., Any] | None = None,
         http_timeout_seconds: float = DEFAULT_HTTP_TIMEOUT_SECONDS,
         sleep_fn: Callable[[float], None] | None = None,
+        monotonic_fn: Callable[[], float] | None = None,
     ) -> None:
         self._settings = settings
         self._urlopen_impl = urlopen_impl if urlopen_impl is not None else urlopen
         self._http_timeout_seconds = http_timeout_seconds
         self._sleep_fn = sleep_fn if sleep_fn is not None else time.sleep
+        self._monotonic_fn = monotonic_fn if monotonic_fn is not None else time.monotonic
 
-    def send(self, items: list[RadarItem]) -> None:
+    def send(self, items: list[RadarItem]) -> DeliveryStats:
+        mono = self._monotonic_fn
+        budget_s = float(self._settings.telegram_max_delivery_seconds)
+        t0 = mono()
+        deadline = t0 + budget_s
+
         if not items:
             logger.info(
                 "delivery: telegram: 0 item(s) selected; nothing to send (no Telegram calls)"
             )
-            return
+            rem_empty = max(0.0, deadline - mono())
+            return DeliveryStats(0, 0, 0, remaining_budget_seconds_at_end=rem_empty)
 
         mode = "dry_run" if self._settings.dry_run else "live"
         n = len(items)
-        logger.info("delivery: telegram: start mode=%s selected=%d", mode, n)
+        logger.info(
+            "delivery: telegram: start mode=%s selected=%d budget_s=%.1f",
+            mode,
+            n,
+            budget_s,
+        )
 
         if self._settings.dry_run:
-            self._send_dry_run(items)
+            sent, skipped = self._send_dry_run_budgeted(items, deadline=deadline, mono=mono)
+            rem = max(0.0, deadline - mono())
             logger.info(
-                "delivery: telegram: summary mode=dry_run selected=%d sent=%d failed=0",
+                "delivery: telegram: summary mode=dry_run selected=%d sent=%d failed=0 "
+                "skipped_due_budget=%d remaining_budget_s=%.2f",
                 n,
-                n,
+                sent,
+                skipped,
+                rem,
             )
-            return
+            stats = DeliveryStats(
+                sent=sent,
+                failed=0,
+                skipped_due_budget=skipped,
+                remaining_budget_seconds_at_end=rem,
+            )
+            if skipped > 0:
+                raise TelegramDeliveryError(
+                    f"Telegram dry_run delivery incomplete: skipped_due_budget={skipped} "
+                    f"sent={sent} selected={n}",
+                    stats=stats,
+                )
+            return stats
 
         token = (self._settings.telegram_bot_token or "").strip()
         chat_id = (self._settings.telegram_chat_id or "").strip()
@@ -180,8 +227,18 @@ class HttpTelegramDelivery:
         base = self._settings.telegram_retry_base_seconds
         sent = 0
         failed = 0
+        skipped_due_budget = 0
 
-        for item in items:
+        for idx, item in enumerate(items):
+            if mono() >= deadline:
+                rest = len(items) - idx
+                skipped_due_budget += rest
+                logger.warning(
+                    "delivery: telegram: global budget exhausted before send; "
+                    "skipping remaining=%d article(s)",
+                    rest,
+                )
+                break
             article_id = item.score.article.id
             text, truncated = self._format_and_truncate(item)
             if truncated:
@@ -191,9 +248,22 @@ class HttpTelegramDelivery:
                 )
             try:
                 self._post_send_message_with_retries(
-                    token, chat_id, text, article_id, max_attempts=max_attempts, base_seconds=base
+                    token,
+                    chat_id,
+                    text,
+                    article_id,
+                    max_attempts=max_attempts,
+                    base_seconds=base,
+                    deadline_monotonic=deadline,
+                    monotonic_fn=mono,
                 )
                 sent += 1
+            except _BudgetExhausted:
+                skipped_due_budget += 1
+                logger.warning(
+                    "delivery: telegram: skipped article_id=%s reason=delivery_budget_exhausted",
+                    article_id,
+                )
             except _ItemSendFailed as e:
                 failed += 1
                 logger.warning(
@@ -202,16 +272,57 @@ class HttpTelegramDelivery:
                     e.reason,
                 )
 
+        rem = max(0.0, deadline - mono())
         logger.info(
-            "delivery: telegram: summary mode=live selected=%d sent=%d failed=%d",
+            "delivery: telegram: summary mode=live selected=%d sent=%d failed=%d "
+            "skipped_due_budget=%d remaining_budget_s=%.2f",
             n,
             sent,
             failed,
+            skipped_due_budget,
+            rem,
         )
-        if failed:
+        stats = DeliveryStats(
+            sent=sent,
+            failed=failed,
+            skipped_due_budget=skipped_due_budget,
+            remaining_budget_seconds_at_end=rem,
+        )
+        incomplete = failed > 0 or skipped_due_budget > 0
+        if incomplete:
             raise TelegramDeliveryError(
-                f"Telegram delivery incomplete: failed={failed} sent={sent} selected={n}"
+                f"Telegram delivery incomplete: failed={failed} skipped_due_budget="
+                f"{skipped_due_budget} sent={sent} selected={n}",
+                stats=stats,
             )
+        return stats
+
+    def _send_dry_run_budgeted(
+        self,
+        items: list[RadarItem],
+        *,
+        deadline: float,
+        mono: Callable[[], float],
+    ) -> tuple[int, int]:
+        """Returns (sent, skipped_due_budget)."""
+        sent = 0
+        for idx, item in enumerate(items):
+            if mono() >= deadline:
+                skipped = len(items) - idx
+                logger.warning(
+                    "delivery: telegram dry_run: global budget exhausted; skipping remaining=%d",
+                    skipped,
+                )
+                return sent, skipped
+            text, truncated = self._format_and_truncate(item)
+            if truncated:
+                logger.warning(
+                    "delivery: telegram dry_run: message truncated to %d chars",
+                    TELEGRAM_MAX_MESSAGE_LENGTH,
+                )
+            logger.info("delivery: telegram dry_run would send:\n%s", text)
+            sent += 1
+        return sent, 0
 
     def _format_and_truncate(self, item: RadarItem) -> tuple[str, bool]:
         raw = format_radar_item_html(item)
@@ -236,9 +347,13 @@ class HttpTelegramDelivery:
         *,
         max_attempts: int,
         base_seconds: float,
+        deadline_monotonic: float,
+        monotonic_fn: Callable[[], float],
     ) -> None:
         last_reason = "unknown"
         for attempt in range(1, max_attempts + 1):
+            if monotonic_fn() >= deadline_monotonic:
+                raise _BudgetExhausted from None
             outcome = self._send_message_single_attempt(token, chat_id, text)
             if outcome == "ok":
                 return
@@ -252,6 +367,11 @@ class HttpTelegramDelivery:
                 delay = min(_RETRY_DELAY_CAP_SECONDS, sleep_hint)
             else:
                 delay = _retry_delay_exponential(attempt - 1, base_seconds)
+            remaining = deadline_monotonic - monotonic_fn()
+            if remaining <= 0:
+                raise _BudgetExhausted from None
+            if delay > remaining:
+                raise _BudgetExhausted from None
             logger.warning(
                 "delivery: telegram: retry article_id=%s attempt=%d/%d reason=%s sleep_s=%.1f",
                 article_id,

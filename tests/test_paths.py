@@ -6,7 +6,7 @@ import pytest
 
 from habr_tech_radar.delivery.http_telegram import TelegramDeliveryError
 from habr_tech_radar.main import main
-from habr_tech_radar.settings import Settings, effective_state_file
+from habr_tech_radar.settings import Settings, effective_last_run_path, effective_state_file
 
 
 def test_effective_state_file_absolute(tmp_path: Path) -> None:
@@ -31,6 +31,16 @@ def test_effective_state_file_relative_to_project_root(
     monkeypatch.chdir(tmp_path)
     s = Settings(state_file=Path("var/seen.json"), project_root=root)
     assert effective_state_file(s) == (root / "var" / "seen.json").resolve()
+
+
+def test_effective_last_run_path_matches_state_rules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "app"
+    root.mkdir()
+    monkeypatch.chdir(tmp_path)
+    s = Settings(last_run_path=Path("var/last.json"), project_root=root)
+    assert effective_last_run_path(s) == (root / "var" / "last.json").resolve()
 
 
 def test_main_returns_2_when_live_telegram_not_configured(monkeypatch: pytest.MonkeyPatch) -> None:
