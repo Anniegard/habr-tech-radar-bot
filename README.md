@@ -1,13 +1,13 @@
 # Habr Tech Radar Bot
 
-Personal **tech radar**: monitor new Habr articles, filter interesting ones, score them, and deliver selected items to Telegram. This repository is **Stage 1**: real **RSS ingestion** with JSON-backed deduplication, plus stub filtering/scoring and log-only delivery—**not** full Telegram or OpenAI integrations yet.
+Personal **tech radar**: monitor new Habr articles, filter interesting ones, score them, and deliver selected items to Telegram. This repository is **Stage 1**: real **RSS ingestion** with JSON-backed deduplication, **config-driven** substring filtering and integer scoring, ranking with a per-run cap, and log-only delivery—**not** full Telegram or OpenAI integrations yet.
 
 ## Цель MVP (этап 1)
 
 Небольшой типизированный пакет на Python:
 
 - Конфигурация через переменные окружения (префикс `HTR_`) и опционально `.env`
-- **Пайплайн**: RSS ingestion (не демо) → filtering → scoring → LLM (no-op) → delivery (только лог)
+- **Пайплайн**: RSS ingestion (не демо) → filtering → scoring → top-N → LLM (no-op) → delivery (только лог)
 - Тесты и инструменты разработки (Ruff, mypy, pytest, pre-commit)
 - Документация для людей и агентов
 
@@ -81,13 +81,22 @@ python -m habr_tech_radar
 - `HTR_RSS_FETCH_TIMEOUT_SECONDS` — таймаут HTTP на каждый RSS-запрос (по умолчанию `30`).
 - `HTR_TELEGRAM_BOT_TOKEN`, `HTR_TELEGRAM_CHAT_ID`, `HTR_OPENAI_API_KEY` — опционально; доставка и LLM пока не подключены к внешним сервисам.
 
+### Фильтрация и скоринг (эвристики)
+
+Правила задаются через `HTR_` (см. `.env.example`). Строки ключевых слов и хабов — **через запятую или пробел**; сопоставление **без учёта регистра**, по **подстроке** в заголовке, кратком тексте (`summary`) и строках категорий RSS (`metadata["categories"]`).
+
+- **Исключения (`HTR_EXCLUDE_*`)**: если сработало — статья **сразу отбрасывается** и не попадает в скоринг.
+- **Включения (`HTR_INCLUDE_*`)**: если оба списка (`INCLUDE_KEYWORDS` и `INCLUDE_HUBS`) **пусты** — режим **пермиссивный** (действуют только исключения). Если хотя бы один список непустой — статья проходит фильтр, если есть совпадение **хотя бы по одному** ключевому слову **или** хабу (логика **ИЛИ**).
+- **Скоринг**: целочисленные очки за совпадения include-ключей и хабов, бонус за ключ в **заголовке**, линейный **бонус свежести** по дате публикации. Веса настраиваются (`HTR_SCORE_WEIGHT_*`, окно свежести `HTR_SCORE_RECENCY_WINDOW_DAYS`). У каждой оценки есть структура `ScoreExplanation` (совпадения и разбивка по компонентам) — удобно для отладки и будущего Telegram.
+- **Ранжирование**: сортировка по убыванию очков; при равенстве — **новее по дате**, затем по `id` для стабильности. В выдачу попадает не больше **`HTR_MAX_SELECTED_ARTICLES`** (по умолчанию `20`).
+
 ### Режим RSS и дедупликация
 
 В обычном режиме (`HTR_DEMO_MODE=false`) приложение загружает указанные RSS-ленты по HTTP, парсит записи в модель `Article`, отбрасывает элементы с уже известными `id` (файл `HTR_STATE_FILE`) и возвращает в пайплайн только **новые** статьи. После успешного разбора новые `id` дописываются в JSON. Если процесс упал до сохранения, при следующем запуске часть статей может снова попасть в выдачу.
 
 ## Запуск
 
-- **Обычный режим** (RSS, нужен интернет): `python -m habr_tech_radar` — статьи из ленты минус уже сохранённые id.
+- **Обычный режим** (RSS, нужен интернет): `python -m habr_tech_radar` — новые статьи из ленты (минус уже сохранённые id), затем фильтр → скоринг → топ-N в логе доставки.
 - **Демо-пайплайн** (одна фейковая статья, без сети): `python -m habr_tech_radar --demo` или `HTR_DEMO_MODE=true`
 
 После установки пакета: консольная команда `habr-tech-radar`.
@@ -102,8 +111,8 @@ python -m habr_tech_radar
 
 По мотивам `project-docs/TASKS.md`:
 
-1. Реальный **`TelegramDelivery`** с token + chat id; учитывать `dry_run`.
-2. Замена заглушек **filtering** и **scoring** настраиваемыми правилами в `config/`.
+1. Реальный **`TelegramDelivery`** с token + chat id; отправка отранжированных `RadarItem`; учитывать `dry_run`.
+2. По желанию — вынести правила в файлы в `config/` поверх текущих env-настроек.
 3. По желанию — **LLM enrichment** за существующим интерфейсом; при необходимости — SQLite вместо JSON для состояния.
 
 ## License

@@ -9,6 +9,15 @@
 
 **Дальше:** реализовать Habr ingestion за `HabrIngestion` (RSS), персистенцию виденных id.
 
+## 2026-04-12 — Filter, scoring, ranking (env-driven)
+
+- Модели: `ScoreExplanation`, `ArticleScore.points` (int) вместо нормализованного float.
+- `HeuristicArticleFilter` / `HeuristicArticleScoring`, `selection.select_top_scored`, интеграция в `run_pipeline` после скоринга.
+- Env: `HTR_INCLUDE_KEYWORDS`, `HTR_EXCLUDE_KEYWORDS`, `HTR_INCLUDE_HUBS`, `HTR_EXCLUDE_HUBS` (строки со списками через запятую/пробел), `HTR_MAX_SELECTED_ARTICLES`, веса `HTR_SCORE_*`.
+- Тесты: фильтр include/exclude, скоринг (title/hub/recency), топ-N и тай-брейки, парсинг списков в настройках.
+
+**Дальше:** реальный `TelegramDelivery` поверх отранжированных `RadarItem`.
+
 ## 2026-04-12 — RSS ingestion + dedup
 
 - Реализованы `RssHabrIngestion` (stdlib HTTP + XML RSS 2.0) и `SeenArticleStore` (JSON-файл с `seen_ids`, восстановление при битом файле, атомарная запись).

@@ -26,7 +26,7 @@ class StubArticleScoring:
             scores.append(
                 ArticleScore(
                     article=fr.article,
-                    value=0.5,
+                    points=1,
                     reasons=["stub default score"],
                 )
             )

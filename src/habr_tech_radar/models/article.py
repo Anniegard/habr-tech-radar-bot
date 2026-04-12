@@ -25,12 +25,25 @@ class FilterResult(BaseModel):
     reason: str | None = None
 
 
+class ScoreExplanation(BaseModel):
+    """Deterministic breakdown for debugging and future Telegram formatting."""
+
+    matched_include_keywords: list[str] = Field(default_factory=list)
+    matched_exclude_keywords: list[str] = Field(default_factory=list)
+    matched_include_hubs: list[str] = Field(default_factory=list)
+    breakdown: dict[str, int] = Field(default_factory=dict)
+
+
 class ArticleScore(BaseModel):
-    """Numeric score with human-readable reasons."""
+    """Integer relevance score with structured explanation."""
 
     article: Article
-    value: float = Field(ge=0.0, le=1.0, description="Normalized score 0..1")
-    reasons: list[str] = Field(default_factory=list)
+    points: int = Field(description="Deterministic relevance score (higher is better)")
+    explanation: ScoreExplanation = Field(default_factory=ScoreExplanation)
+    reasons: list[str] = Field(
+        default_factory=list,
+        description="Short human-readable lines (optional; mirrors explanation)",
+    )
 
 
 class RadarItem(BaseModel):

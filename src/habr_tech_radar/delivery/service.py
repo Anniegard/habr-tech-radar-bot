@@ -22,8 +22,8 @@ class LogOnlyTelegramDelivery:
         for item in items:
             a = item.score.article
             logger.info(
-                "delivery: would send - score=%.2f title=%r url=%s",
-                item.score.value,
+                "delivery: would send - points=%d title=%r url=%s",
+                item.score.points,
                 a.title,
                 str(a.url),
             )

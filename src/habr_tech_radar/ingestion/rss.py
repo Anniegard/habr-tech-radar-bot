@@ -112,7 +112,7 @@ def parse_rss_bytes(data: bytes, *, feed_url: str) -> list[Article]:
             if desc:
                 summary = _strip_html_to_text(desc)
                 if len(summary) > _SUMMARY_MAX_LEN:
-                    summary = summary[: _SUMMARY_MAX_LEN] + "…"
+                    summary = summary[:_SUMMARY_MAX_LEN] + "…"
 
             meta: dict[str, Any] = {"feed_url": feed_url}
             if guid_raw:
