@@ -94,10 +94,12 @@ sudo chown -R htrbot:htrbot /var/lib/htrbot
 
 ### systemd: service + timer
 
-1. Отредактируйте пути в [`deploy/habr-tech-radar.service`](deploy/habr-tech-radar.service) и [`deploy/habr-tech-radar.timer`](deploy/habr-tech-radar.timer): `User`, `Group`, `WorkingDirectory`, `ExecStart`, `EnvironmentFile`, при необходимости `Documentation=`.
-2. Установите юниты и включите таймер (сначала venv от обычного пользователя — см. выше; копирование в `/etc` — от root):
+1. Отредактируйте пути в [`deploy/habr-tech-radar.service`](deploy/habr-tech-radar.service) и [`deploy/habr-tech-radar.timer`](deploy/habr-tech-radar.timer): `User`, `Group`, `WorkingDirectory`, `EnvironmentFile`, при необходимости `Documentation=`. `ExecStart` указывает на [`deploy/run_once.sh`](deploy/run_once.sh) — оболочка с **`flock`**, чтобы **не было двух одновременных** запусков по таймеру.
+2. Создайте каталог под **файл блокировки** (по умолчанию **`/var/lib/habr-tech-radar/`** для `pipeline.lock`) и отдайте владельцу сервисного пользователя (см. комментарии в unit и вывод `install_vm.sh --install-systemd`).
+3. Установите юниты и включите таймер (сначала venv от обычного пользователя — см. выше; копирование в `/etc` — от root):
 
 ```bash
+chmod +x deploy/run_once.sh
 sudo /path/to/habr-tech-radar-bot/deploy/install_vm.sh --install-systemd
 # или вручную:
 sudo install -m 0644 deploy/habr-tech-radar.service /etc/systemd/system/
@@ -106,7 +108,11 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now habr-tech-radar.timer
 ```
 
-Таймер по умолчанию: **каждый час в :17** (см. `OnCalendar` в unit). `RandomizedDelaySec` слегка размазывает старт. Если длительность прогона может превысить интервал, возможен **перекрывающийся** второй запуск — увеличьте интервал, уменьшите `TimeoutStartSec` только осторожно, или оберните команду в `flock` (см. комментарии в `deploy/habr-tech-radar.timer`).
+**Перекрытие запусков:** если предыдущий прогон ещё держит блокировку, новый старт **не падает**: в stderr будет строка вида `habr-tech-radar: skip: overlap lock_held path=...`, код выхода **0** (в `journalctl` это не выглядит как поломка деплоя). Путь к lock можно переопределить переменной **`HTR_PIPELINE_LOCK_FILE`** в unit-файле (`Environment=`).
+
+Таймер по умолчанию: **каждый час в :17** (см. `OnCalendar` в unit). `RandomizedDelaySec` слегка размазывает старт.
+
+**Повторы Telegram:** при временных сбоях сети, HTTP **5xx** и **429** `sendMessage` повторяется ограниченное число раз с паузой (см. `HTR_TELEGRAM_SEND_MAX_ATTEMPTS`, `HTR_TELEGRAM_RETRY_BASE_SECONDS` в `.env.example`). В логах: `delivery: telegram: start|retry|summary`, без URL с токеном.
 
 ### Управление и логи
 
@@ -116,9 +122,11 @@ sudo systemctl status habr-tech-radar.timer
 sudo systemctl list-timers habr-tech-radar.timer
 journalctl -u habr-tech-radar.service -f
 journalctl -u habr-tech-radar.service -n 200 --no-pager
+# полезные фильтры:
+journalctl -u habr-tech-radar.service -g 'skip: overlap|delivery: telegram|TelegramConfigurationError'
 ```
 
-В unit задано `PYTHONUNBUFFERED=1`, чтобы строки лога сразу попадали в journal.
+В unit задано `PYTHONUNBUFFERED=1`, чтобы строки лога сразу попадали в journal. Строки **`delivery: telegram:`** дают режим (`dry_run` / `live`), число отобранных статей, повторы и итог `sent` / `failed`.
 
 ### Ручной запуск для отладки
 
@@ -129,7 +137,7 @@ set -a; source .env; set +a   # если не полагаетесь на pydant
 python -m habr_tech_radar
 ```
 
-При ошибке конфигурации живой Telegram без учётных данных процесс завершится с **кодом 2** и одной строкой в логе (без утечки секретов).
+Коды выхода: **0** — успех; **2** — нет токена/chat id при `HTR_DRY_RUN=false` (`TelegramConfigurationError`, одна строка в логе); **1** — после исчерпания повторов остались недоставленные сообщения (`TelegramDeliveryError`). Пропуск из‑за **flock** даёт код **0** и строку `skip: overlap` в логе.
 
 ## Команды
 
@@ -171,6 +179,8 @@ python -m habr_tech_radar
 - `HTR_PROJECT_ROOT` — если задан, **относительный** `HTR_STATE_FILE` резолвится от этого каталога (удобно, когда cwd не совпадает с каталогом данных).
 - `HTR_RSS_FETCH_TIMEOUT_SECONDS` — таймаут HTTP на каждый RSS-запрос (по умолчанию `30`).
 - `HTR_TELEGRAM_BOT_TOKEN`, `HTR_TELEGRAM_CHAT_ID` — для **живой** доставки при `HTR_DRY_RUN=false` (оба непустые). Бот: [@BotFather](https://t.me/BotFather); **chat id** — ваш user id или id группы (удобно узнать через [@userinfobot](https://t.me/userinfobot) или аналоги). При `HTR_DRY_RUN=true` можно оставить пустыми.
+- `HTR_TELEGRAM_SEND_MAX_ATTEMPTS`, `HTR_TELEGRAM_RETRY_BASE_SECONDS` — лимит попыток `sendMessage` на статью и базовая задержка для backoff (см. `.env.example`).
+- `HTR_PIPELINE_LOCK_FILE` — путь к файлу блокировки для [`deploy/run_once.sh`](deploy/run_once.sh) (обычно задаётся в systemd, не в `.env`).
 - `HTR_OPENAI_API_KEY` — зарезервировано под будущий `LLMEnrichment` (пока не используется).
 
 ### Фильтрация и скоринг (эвристики)
@@ -201,7 +211,7 @@ python -m habr_tech_radar
 
 1. Установите `HTR_TELEGRAM_BOT_TOKEN` и `HTR_TELEGRAM_CHAT_ID`.
 2. Установите `HTR_DRY_RUN=false`.
-3. Запустите пайплайн (например `python -m habr_tech_radar`). Если `HTR_DRY_RUN=false`, а токен или chat id пустые, приложение завершится с **кодом выхода 2** и одной строкой ошибки в логе (fail-fast, без traceback).
+3. Запустите пайплайн (например `python -m habr_tech_radar`). Если `HTR_DRY_RUN=false`, а токен или chat id пустые, приложение завершится с **кодом выхода 2** и одной строкой ошибки в логе (fail-fast, без traceback). Если после повторов остались ошибки доставки — **код 1** и краткое сообщение без traceback.
 
 ## Работа с агентами (Cursor)
 
@@ -215,7 +225,7 @@ python -m habr_tech_radar
 
 1. По желанию — **LLM enrichment** за существующим интерфейсом (`OpenAI` и др.).
 2. По желанию — вынести часть правил в `config/`; при росте состояния — SQLite вместо JSON.
-3. Операционные улучшения: retry/rate limit Telegram, блокировка перекрывающихся запусков (`flock`), мониторинг.
+3. Мониторинг / алерты по повторяющимся `failed` в логах доставки.
 
 ## License
 

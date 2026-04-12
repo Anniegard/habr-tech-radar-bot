@@ -32,10 +32,16 @@
 - CLI: `TelegramConfigurationError` → код выхода 2, одна строка в лог
 - Документация: README (Ubuntu VM), HANDOFF, `.env.example`
 
+## Сделано (операционное ужесточение VM)
+
+- `deploy/run_once.sh`: `flock` на `HTR_PIPELINE_LOCK_FILE` (по умолчанию `/var/lib/habr-tech-radar/pipeline.lock`), при занятой блокировке — лог `skip: overlap`, код выхода 0
+- `HttpTelegramDelivery`: ограниченные повторы `sendMessage` (сеть, 5xx, 429, flood в JSON), backoff, логи `start` / `retry` / `summary`; `TelegramDeliveryError` → CLI код 1
+- Тесты на политику повторов и `main` exit 1; обновлены README, HANDOFF, CHANGELOG, SESSION_LOG, `.env.example`
+
 ## Дальше
 
 - По желанию: `LLMEnrichment` с OpenAI (за интерфейсом, через env)
-- По желанию: retry/rate limit для Telegram, батчи; опционально `flock` вокруг `ExecStart` при перекрывающихся запусках
+- Мониторинг / алерты по доставке; по желанию — retry RSS отдельно от Telegram
 
 ## Этап 2 (не начинать в этом репо без явного scope)
 

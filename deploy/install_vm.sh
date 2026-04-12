@@ -33,8 +33,12 @@ if [[ "$COPY_SYSTEMD" -eq 1 ]]; then
   fi
   install -m 0644 "$REPO_ROOT/deploy/habr-tech-radar.service" /etc/systemd/system/
   install -m 0644 "$REPO_ROOT/deploy/habr-tech-radar.timer" /etc/systemd/system/
+  chmod +x "$REPO_ROOT/deploy/run_once.sh"
   systemctl daemon-reload
   echo "Installed units from $REPO_ROOT/deploy/"
+  echo "Ensure lock dir exists (default lock: /var/lib/habr-tech-radar/pipeline.lock):"
+  echo "  sudo mkdir -p /var/lib/habr-tech-radar && sudo chown htrbot:htrbot /var/lib/habr-tech-radar"
+  echo "(replace htrbot with your service user if different)"
   echo "Enable timer: systemctl enable --now habr-tech-radar.timer"
   exit 0
 fi
@@ -66,6 +70,7 @@ echo "Venv:     $REPO_ROOT/.venv"
 echo "Activate: source $REPO_ROOT/.venv/bin/activate"
 echo "Config:   copy .env.example to $REPO_ROOT/.env and edit (no secrets in git)."
 echo "Run once: $REPO_ROOT/.venv/bin/habr-tech-radar"
+echo "systemd uses: $REPO_ROOT/deploy/run_once.sh (flock; chmod +x if needed)"
 echo ""
 echo "systemd: edit deploy/habr-tech-radar.service and deploy/habr-tech-radar.timer paths, then:"
 echo "  sudo $REPO_ROOT/deploy/install_vm.sh --install-systemd"

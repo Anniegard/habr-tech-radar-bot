@@ -46,6 +46,18 @@ class Settings(BaseSettings):
 
     telegram_bot_token: str | None = Field(default=None)
     telegram_chat_id: str | None = Field(default=None)
+    telegram_send_max_attempts: int = Field(
+        default=4,
+        ge=1,
+        le=10,
+        description="sendMessage attempts per article (includes first try; retries = N-1)",
+    )
+    telegram_retry_base_seconds: float = Field(
+        default=1.0,
+        ge=0.1,
+        le=60.0,
+        description="Base delay for exponential backoff between transient Telegram failures",
+    )
     openai_api_key: str | None = Field(default=None)
 
     project_root: Path | None = Field(

@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
+from io import BytesIO
 from typing import Any
 from unittest.mock import MagicMock
+from urllib.error import HTTPError
 from urllib.request import Request
 
 import pytest
 
+from habr_tech_radar.delivery import http_telegram as http_telegram_mod
 from habr_tech_radar.delivery.html_message import (
     TELEGRAM_MAX_MESSAGE_LENGTH,
     format_radar_item_html,
@@ -16,6 +19,7 @@ from habr_tech_radar.delivery.html_message import (
 from habr_tech_radar.delivery.http_telegram import (
     HttpTelegramDelivery,
     TelegramConfigurationError,
+    TelegramDeliveryError,
     telegram_credentials_ok,
 )
 from habr_tech_radar.models.article import Article, ArticleScore, RadarItem, ScoreExplanation
@@ -79,6 +83,26 @@ def test_telegram_credentials_ok() -> None:
     assert telegram_credentials_ok(Settings(telegram_bot_token="t", telegram_chat_id="1"))
     assert not telegram_credentials_ok(Settings(telegram_bot_token=None, telegram_chat_id="1"))
     assert not telegram_credentials_ok(Settings(telegram_bot_token="  ", telegram_chat_id="1"))
+
+
+def _http_error(
+    code: int,
+    body: bytes = b"{}",
+    headers: dict[str, str] | None = None,
+) -> HTTPError:
+    from email.message import Message
+
+    m = Message()
+    if headers:
+        for k, v in headers.items():
+            m[k] = v
+    return HTTPError(
+        "https://api.telegram.org/botT/sendMessage",
+        code,
+        "err",
+        m,
+        BytesIO(body),
+    )
 
 
 class _FakeHttpResponse:
@@ -189,3 +213,158 @@ def test_default_components_telegram_wiring(
     c = default_components(s)
     assert isinstance(c.delivery, expect_type)
     assert not type(c.delivery).__name__.startswith("LogOnly")
+
+
+def test_retry_delay_exponential_respects_cap() -> None:
+    assert http_telegram_mod._retry_delay_exponential(0, 1.0) == 1.0
+    assert (
+        http_telegram_mod._retry_delay_exponential(10, 1.0)
+        == http_telegram_mod._RETRY_DELAY_CAP_SECONDS
+    )
+
+
+def test_live_retry_on_503_then_success() -> None:
+    calls: list[int] = []
+
+    def fake_urlopen(req: Request, timeout: float = 0) -> Any:
+        calls.append(1)
+        if len(calls) == 1:
+            raise _http_error(503, b'{"ok":false}')
+        return _FakeHttpResponse(b'{"ok":true,"result":{"message_id":1}}')
+
+    delivery = HttpTelegramDelivery(
+        Settings(
+            dry_run=False,
+            telegram_bot_token="T",
+            telegram_chat_id="1",
+            telegram_send_max_attempts=4,
+            telegram_retry_base_seconds=1.0,
+        ),
+        urlopen_impl=fake_urlopen,
+        sleep_fn=lambda _x: None,
+    )
+    delivery.send([_radar_with()])
+    assert len(calls) == 2
+
+
+def test_live_no_retry_on_http_401() -> None:
+    calls: list[int] = []
+
+    def fake_urlopen(req: Request, timeout: float = 0) -> Any:
+        calls.append(1)
+        raise _http_error(401, b'{"ok":false,"description":"Unauthorized"}')
+
+    delivery = HttpTelegramDelivery(
+        Settings(
+            dry_run=False,
+            telegram_bot_token="T",
+            telegram_chat_id="1",
+            telegram_send_max_attempts=4,
+        ),
+        urlopen_impl=fake_urlopen,
+        sleep_fn=lambda _x: None,
+    )
+    with pytest.raises(TelegramDeliveryError):
+        delivery.send([_radar_with()])
+    assert len(calls) == 1
+
+
+def test_live_http_429_uses_retry_after_header() -> None:
+    calls: list[int] = []
+
+    def fake_urlopen(req: Request, timeout: float = 0) -> Any:
+        calls.append(1)
+        if len(calls) == 1:
+            raise _http_error(429, b"{}", headers={"Retry-After": "1"})
+        return _FakeHttpResponse(b'{"ok":true}')
+
+    sleeps: list[float] = []
+
+    def track_sleep(s: float) -> None:
+        sleeps.append(s)
+
+    delivery = HttpTelegramDelivery(
+        Settings(dry_run=False, telegram_bot_token="T", telegram_chat_id="1"),
+        urlopen_impl=fake_urlopen,
+        sleep_fn=track_sleep,
+    )
+    delivery.send([_radar_with()])
+    assert len(calls) == 2
+    assert len(sleeps) == 1
+    assert sleeps[0] == pytest.approx(1.0)
+
+
+def test_live_ok_false_unauthorized_no_retry() -> None:
+    calls: list[int] = []
+
+    def fake_urlopen(req: Request, timeout: float = 0) -> Any:
+        calls.append(1)
+        return _FakeHttpResponse(b'{"ok":false,"error_code":401,"description":"Unauthorized"}')
+
+    delivery = HttpTelegramDelivery(
+        Settings(dry_run=False, telegram_bot_token="T", telegram_chat_id="1"),
+        urlopen_impl=fake_urlopen,
+        sleep_fn=lambda _x: None,
+    )
+    with pytest.raises(TelegramDeliveryError):
+        delivery.send([_radar_with()])
+    assert len(calls) == 1
+
+
+def test_live_ok_false_flood_retries_then_success() -> None:
+    n = [0]
+
+    def fake_urlopen(req: Request, timeout: float = 0) -> Any:
+        n[0] += 1
+        if n[0] == 1:
+            return _FakeHttpResponse(
+                b'{"ok":false,"error_code":429,"parameters":{"retry_after":1}}'
+            )
+        return _FakeHttpResponse(b'{"ok":true}')
+
+    delivery = HttpTelegramDelivery(
+        Settings(dry_run=False, telegram_bot_token="T", telegram_chat_id="1"),
+        urlopen_impl=fake_urlopen,
+        sleep_fn=lambda _x: None,
+    )
+    delivery.send([_radar_with()])
+    assert n[0] == 2
+
+
+def test_retry_logged_with_article_id(caplog: pytest.LogCaptureFixture) -> None:
+    calls: list[int] = []
+
+    def fake_urlopen(req: Request, timeout: float = 0) -> Any:
+        calls.append(1)
+        if len(calls) == 1:
+            raise _http_error(503)
+        return _FakeHttpResponse(b'{"ok":true}')
+
+    caplog.set_level("WARNING")
+    delivery = HttpTelegramDelivery(
+        Settings(
+            dry_run=False,
+            telegram_bot_token="T",
+            telegram_chat_id="1",
+            telegram_send_max_attempts=4,
+        ),
+        urlopen_impl=fake_urlopen,
+        sleep_fn=lambda _x: None,
+    )
+    delivery.send([_radar_with()])
+    joined = " ".join(rec.message for rec in caplog.records)
+    assert "retry" in joined
+    assert "article_id=x1" in joined
+
+
+def test_dry_run_logs_start_and_summary(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level("INFO")
+
+    def fake_urlopen(req: Request, timeout: float = 0) -> Any:
+        raise AssertionError("no HTTP in dry_run")
+
+    delivery = HttpTelegramDelivery(Settings(dry_run=True), urlopen_impl=fake_urlopen)
+    delivery.send([_radar_with()])
+    joined = " ".join(rec.message for rec in caplog.records)
+    assert "delivery: telegram: start mode=dry_run selected=1" in joined
+    assert "delivery: telegram: summary mode=dry_run selected=1 sent=1 failed=0" in joined

@@ -4,6 +4,12 @@
 
 ### 2026-04-12
 
+- Операции на VM: `deploy/run_once.sh` с `flock` (по умолчанию `/var/lib/habr-tech-radar/pipeline.lock`, переопределение `HTR_PIPELINE_LOCK_FILE`); при занятой блокировке — сообщение `skip: overlap`, код выхода 0. `habr-tech-radar.service` вызывает wrapper вместо прямого `habr-tech-radar`.
+- Telegram: ограниченные повторы `sendMessage` при временных ошибках (сеть, HTTP 5xx/429, flood в JSON-ответе), экспоненциальный backoff; без повторов на типичные постоянные ошибки (4xx кроме 429 и т.п.). Логи `delivery: telegram: start|retry|summary`; `HTR_TELEGRAM_SEND_MAX_ATTEMPTS`, `HTR_TELEGRAM_RETRY_BASE_SECONDS`. Новое исключение `TelegramDeliveryError`, CLI код выхода **1**; конфигурация Telegram по-прежнему код **2**.
+- Тесты политики доставки и `main` exit 1; обновлены README, `project-docs/*`, `.env.example`.
+
+### 2026-04-12
+
 - Развёртывание на Ubuntu VM: каталог `deploy/` с шаблонами `habr-tech-radar.service` (oneshot), `habr-tech-radar.timer`, скрипт `deploy/install_vm.sh` (venv, `pip install -e .`, опциональное копирование unit-файлов в `/etc/systemd/system/`). Документация в README и `project-docs/HANDOFF.md`.
 - Конфигурация путей: `HTR_PROJECT_ROOT`, функция `effective_state_file()` для резолва относительного `HTR_STATE_FILE`; интеграция в пайплайн (`SeenArticleStore`).
 - CLI: при ошибке конфигурации Telegram в живом режиме — код выхода 2 и одна строка в лог (`TelegramConfigurationError` в `main`); тесты в `tests/test_paths.py`.

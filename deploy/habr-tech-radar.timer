@@ -8,8 +8,8 @@
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now habr-tech-radar.timer
 #
-# Overlap: if a run exceeds the interval, two instances may overlap. Prefer a long enough
-# interval, tune TimeoutStartSec on the service, or wrap ExecStart with flock (see README).
+# Overlap: habr-tech-radar.service uses deploy/run_once.sh (flock). If a run is still
+# active when the timer fires, the new invocation exits 0 with a skip log (see README).
 
 [Unit]
 Description=Timer for Habr Tech Radar (hourly at :17)

@@ -41,3 +41,11 @@
 - Обновлены README, HANDOFF, TASKS, `.env.example`, CHANGELOG.
 
 **Дальше:** LLM за интерфейсом; операционные улучшения (retry, flock) по необходимости.
+
+## 2026-04-12 — Операционное ужесточение (flock + retry Telegram)
+
+- `deploy/run_once.sh` + `flock`: путь блокировки по умолчанию `/var/lib/habr-tech-radar/pipeline.lock`, переменная `HTR_PIPELINE_LOCK_FILE`; при занятом lock — stderr `skip: overlap`, exit 0. Unit `ExecStart` переведён на wrapper.
+- `HttpTelegramDelivery`: повторы при временных сбоях (сеть, 5xx, 429, flood в JSON), экспоненциальный backoff с потолком; без повторов на явные клиентские/конфигурационные ошибки; логи `delivery: telegram: start|retry|summary`; `TelegramDeliveryError` → `main` exit 1.
+- Env: `HTR_TELEGRAM_SEND_MAX_ATTEMPTS`, `HTR_TELEGRAM_RETRY_BASE_SECONDS`. Тесты в `tests/test_delivery_telegram.py`, `tests/test_paths.py`. Документация и CHANGELOG обновлены.
+
+**Дальше:** мониторинг; LLM за интерфейсом; опционально retry RSS.

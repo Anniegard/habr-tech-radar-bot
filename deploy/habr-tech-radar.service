@@ -5,6 +5,8 @@
 #   2. Clone the repo and create .venv; set WorkingDirectory / ExecStart paths below.
 #   3. Copy .env.example to .env in the repo root (or point EnvironmentFile elsewhere).
 #   4. If using HTR_STATE_FILE under /var/lib/..., create the directory and chown to User.
+#   5. For overlap lock (default /var/lib/habr-tech-radar/pipeline.lock): mkdir + chown that
+#      directory so the service user can create the lock file (see deploy/run_once.sh).
 #
 # Install (from repo root, after editing paths):
 #   sudo install -m 0644 deploy/habr-tech-radar.service /etc/systemd/system/
@@ -27,9 +29,11 @@ WorkingDirectory=/home/htrbot/habr-tech-radar-bot
 # Optional: omit leading "-" once the file exists (leading "-" = ignore if missing).
 EnvironmentFile=-/home/htrbot/habr-tech-radar-bot/.env
 Environment=PYTHONUNBUFFERED=1
+# Optional: non-default flock path (must be writable by User)
+# Environment=HTR_PIPELINE_LOCK_FILE=/var/lib/htrbot/habr-tech-radar/pipeline.lock
 
-# Absolute path to the venv console script (adjust clone path / venv location).
-ExecStart=/home/htrbot/habr-tech-radar-bot/.venv/bin/habr-tech-radar
+# flock wrapper — prevents overlapping scheduled runs; skips cleanly if lock held.
+ExecStart=/home/htrbot/habr-tech-radar-bot/deploy/run_once.sh
 
 # Kill stuck runs (RSS + Telegram); increase if feeds are very slow.
 TimeoutStartSec=600
