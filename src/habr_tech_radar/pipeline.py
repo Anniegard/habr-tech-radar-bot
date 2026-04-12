@@ -3,7 +3,12 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from habr_tech_radar.delivery.service import LogOnlyTelegramDelivery, TelegramDelivery
+from habr_tech_radar.delivery.http_telegram import (
+    HttpTelegramDelivery,
+    TelegramConfigurationError,
+    telegram_credentials_ok,
+)
+from habr_tech_radar.delivery.service import TelegramDelivery
 from habr_tech_radar.filtering.heuristic import HeuristicArticleFilter
 from habr_tech_radar.filtering.service import ArticleFilter
 from habr_tech_radar.ingestion.rss import RssHabrIngestion
@@ -41,6 +46,18 @@ def run_pipeline(components: PipelineComponents) -> list[RadarItem]:
     return items
 
 
+def _resolve_telegram_delivery(settings: Settings) -> TelegramDelivery:
+    """HTTP Telegram when dry_run or creds OK; live mode without creds fails fast."""
+    if settings.dry_run:
+        return HttpTelegramDelivery(settings)
+    if telegram_credentials_ok(settings):
+        return HttpTelegramDelivery(settings)
+    raise TelegramConfigurationError(
+        "HTR_DRY_RUN=false requires both HTR_TELEGRAM_BOT_TOKEN and HTR_TELEGRAM_CHAT_ID "
+        "(non-empty). Set HTR_DRY_RUN=true to run without sending to Telegram, or add credentials."
+    )
+
+
 def default_components(settings: Settings) -> PipelineComponents:
     """Wire default implementations: demo uses stub ingestion; otherwise RSS + seen IDs."""
     if settings.demo_mode:
@@ -53,6 +70,6 @@ def default_components(settings: Settings) -> PipelineComponents:
         article_filter=HeuristicArticleFilter(settings),
         scoring=HeuristicArticleScoring(settings),
         llm=NoOpLLMEnrichment(),
-        delivery=LogOnlyTelegramDelivery(),
+        delivery=_resolve_telegram_delivery(settings),
         max_selected_articles=settings.max_selected_articles,
     )

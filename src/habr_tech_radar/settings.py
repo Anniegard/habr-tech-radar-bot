@@ -35,7 +35,10 @@ class Settings(BaseSettings):
     )
 
     log_level: str = Field(default="INFO", description="Logging level name")
-    dry_run: bool = Field(default=True, description="Avoid destructive or external side effects")
+    dry_run: bool = Field(
+        default=True,
+        description="If true, do not call Telegram API (messages logged as would-send HTML)",
+    )
     demo_mode: bool = Field(
         default=False,
         description="When true, ingest one synthetic article (no network)",

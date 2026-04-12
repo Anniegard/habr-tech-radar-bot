@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 @runtime_checkable
 class TelegramDelivery(Protocol):
-    """Sends radar items to Telegram. TODO: python-telegram-bot or HTTP API."""
+    """Sends radar items to Telegram (e.g. HttpTelegramDelivery or LogOnlyTelegramDelivery)."""
 
     def send(self, items: list[RadarItem]) -> None: ...
 

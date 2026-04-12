@@ -20,7 +20,7 @@ flowchart LR
 - **scoring**: Assign points (`ArticleScoring`). **Default:** `HeuristicArticleScoring` — integer weights, title bonus, recency; `ScoreExplanation` on each `ArticleScore`.
 - **selection**: After scoring, `select_top_scored` sorts by points, publish time, id and keeps top `HTR_MAX_SELECTED_ARTICLES`.
 - **llm**: Optional enrichment (`LLMEnrichment`; `NoOpLLMEnrichment`).
-- **delivery**: Notify (`TelegramDelivery`; `LogOnlyTelegramDelivery` logs only).
+- **delivery**: Notify (`TelegramDelivery`; default `HttpTelegramDelivery` — при `HTR_DRY_RUN` лог с HTML-текстом без HTTP, иначе `sendMessage` в Telegram; `LogOnlyTelegramDelivery` остаётся вспомогательной заглушкой).
 
 ## Code map
 

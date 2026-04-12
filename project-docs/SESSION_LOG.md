@@ -18,6 +18,13 @@
 
 **Дальше:** реальный `TelegramDelivery` поверх отранжированных `RadarItem`.
 
+## 2026-04-12 — Telegram HTTP delivery (Stage 1)
+
+- `HttpTelegramDelivery` + `format_radar_item_html` (HTML, экранирование, лимит длины); `HTR_DRY_RUN` строго отключает HTTP к Telegram; live-режим требует оба `HTR_TELEGRAM_*`; fail-fast в `default_components` при `dry_run=false` без учётных данных.
+- Тесты в `tests/test_delivery_telegram.py`; документация и `.env.example` обновлены.
+
+**Дальше:** планировщик; опционально LLM за интерфейсом.
+
 ## 2026-04-12 — RSS ingestion + dedup
 
 - Реализованы `RssHabrIngestion` (stdlib HTTP + XML RSS 2.0) и `SeenArticleStore` (JSON-файл с `seen_ids`, восстановление при битом файле, атомарная запись).

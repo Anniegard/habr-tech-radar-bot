@@ -1,13 +1,13 @@
 # Habr Tech Radar Bot
 
-Personal **tech radar**: monitor new Habr articles, filter interesting ones, score them, and deliver selected items to Telegram. This repository is **Stage 1**: real **RSS ingestion** with JSON-backed deduplication, **config-driven** substring filtering and integer scoring, ranking with a per-run cap, and log-only delivery—**not** full Telegram or OpenAI integrations yet.
+Personal **tech radar**: monitor new Habr articles, filter interesting ones, score them, and deliver selected items to Telegram. This repository is **Stage 1**: real **RSS ingestion** with JSON-backed deduplication, **config-driven** substring filtering and integer scoring, ranking with a per-run cap, and **Telegram delivery** via the Bot API (`sendMessage`, HTML). **OpenAI / LLM enrichment** is not wired yet.
 
 ## Цель MVP (этап 1)
 
 Небольшой типизированный пакет на Python:
 
 - Конфигурация через переменные окружения (префикс `HTR_`) и опционально `.env`
-- **Пайплайн**: RSS ingestion (не демо) → filtering → scoring → top-N → LLM (no-op) → delivery (только лог)
+- **Пайплайн**: RSS ingestion (не демо) → filtering → scoring → top-N → LLM (no-op) → **Telegram** (`HttpTelegramDelivery`: сухой прогон или реальная отправка)
 - Тесты и инструменты разработки (Ruff, mypy, pytest, pre-commit)
 - Документация для людей и агентов
 
@@ -74,12 +74,13 @@ python -m habr_tech_radar
 Важное:
 
 - `HTR_LOG_LEVEL` — по умолчанию `INFO`
-- `HTR_DRY_RUN` — по умолчанию `true` (зарезервировано под будущее отключение побочных эффектов)
+- `HTR_DRY_RUN` — по умолчанию `true`: сообщения **форматируются** и пишутся в лог как «would send», **без** HTTP к Telegram. Для реальной отправки задайте `false` и токен + chat id.
 - `HTR_DEMO_MODE` — при `true` ingestion возвращает одну синтетическую статью (без сети)
 - `HTR_HABR_RSS_URLS` — один или несколько URL RSS (через запятую или пробел). По умолчанию лента русскоязычных статей Habr. Пустое значение отключает запросы (для тестов/CI).
 - `HTR_STATE_FILE` — путь к JSON-файлу с уже виденными `id` статей; по умолчанию `.habr_tech_radar_seen.json` в текущей директории. Повторный запуск с тем же фидом обычно не дублирует статьи.
 - `HTR_RSS_FETCH_TIMEOUT_SECONDS` — таймаут HTTP на каждый RSS-запрос (по умолчанию `30`).
-- `HTR_TELEGRAM_BOT_TOKEN`, `HTR_TELEGRAM_CHAT_ID`, `HTR_OPENAI_API_KEY` — опционально; доставка и LLM пока не подключены к внешним сервисам.
+- `HTR_TELEGRAM_BOT_TOKEN`, `HTR_TELEGRAM_CHAT_ID` — для **живой** доставки при `HTR_DRY_RUN=false` (оба непустые). Бот: [@BotFather](https://t.me/BotFather); **chat id** — ваш user id или id группы (удобно узнать через [@userinfobot](https://t.me/userinfobot) или аналоги). При `HTR_DRY_RUN=true` можно оставить пустыми.
+- `HTR_OPENAI_API_KEY` — зарезервировано под будущий `LLMEnrichment` (пока не используется).
 
 ### Фильтрация и скоринг (эвристики)
 
@@ -96,10 +97,20 @@ python -m habr_tech_radar
 
 ## Запуск
 
-- **Обычный режим** (RSS, нужен интернет): `python -m habr_tech_radar` — новые статьи из ленты (минус уже сохранённые id), затем фильтр → скоринг → топ-N в логе доставки.
-- **Демо-пайплайн** (одна фейковая статья, без сети): `python -m habr_tech_radar --demo` или `HTR_DEMO_MODE=true`
+- **Обычный режим** (RSS, нужен интернет): `python -m habr_tech_radar` — новые статьи из ленты (минус уже сохранённые id), затем фильтр → скоринг → топ-N → доставка (по умолчанию `HTR_DRY_RUN=true`: HTML-сообщения в лог, без Telegram HTTP).
+- **Демо-пайплайн** (одна фейковая статья, без сети): `python -m habr_tech_radar --demo` или `HTR_DEMO_MODE=true` — доставка ведёт себя как при `dry_run`: форматированный текст в логе.
 
 После установки пакета: консольная команда `habr-tech-radar`.
+
+### Сообщение в Telegram (HTML)
+
+Одна статья — одно сообщение. Текст строится в [`format_radar_item_html`](src/habr_tech_radar/delivery/html_message.py): заголовок, очки, время публикации (UTC), ссылка (`parse_mode=HTML`), кратко **почему такой score** (совпадения include, разбивка по компонентам из `ScoreExplanation`), при необходимости summary. Пользовательский контент экранируется; длинные тексты обрезаются до лимита Telegram (~4096 символов) с пометкой «truncated».
+
+### Реальная отправка
+
+1. Установите `HTR_TELEGRAM_BOT_TOKEN` и `HTR_TELEGRAM_CHAT_ID`.
+2. Установите `HTR_DRY_RUN=false`.
+3. Запустите пайплайн (например `python -m habr_tech_radar`). Если `HTR_DRY_RUN=false`, а токен или chat id пустые, приложение завершится с ошибкой конфигурации при сборке компонентов (fail-fast).
 
 ## Работа с агентами (Cursor)
 
@@ -111,9 +122,9 @@ python -m habr_tech_radar
 
 По мотивам `project-docs/TASKS.md`:
 
-1. Реальный **`TelegramDelivery`** с token + chat id; отправка отранжированных `RadarItem`; учитывать `dry_run`.
-2. По желанию — вынести правила в файлы в `config/` поверх текущих env-настроек.
-3. По желанию — **LLM enrichment** за существующим интерфейсом; при необходимости — SQLite вместо JSON для состояния.
+1. Планировщик / периодический запуск (cron, systemd, GitHub Actions и т.д.).
+2. По желанию — **LLM enrichment** за существующим интерфейсом (`OpenAI` и др.).
+3. По желанию — вынести часть правил в `config/`; при росте состояния — SQLite вместо JSON.
 
 ## License
 

@@ -18,11 +18,18 @@
 - `select_top_scored`: топ-N, тай-брейк по дате и `id`; `HTR_MAX_SELECTED_ARTICLES`
 - Настройки и `.env.example` для списков и весов; тесты на фильтр, скоринг, ранжирование, парсинг списков
 
+## Сделано (Stage 1 — Telegram delivery)
+
+- `HttpTelegramDelivery`: Telegram Bot API `sendMessage` по HTTP (stdlib), `parse_mode=HTML`, одно сообщение на `RadarItem`
+- `format_radar_item_html`: экранирование, `ScoreExplanation`, время публикации, обрезка до ~4096 символов
+- `HTR_DRY_RUN`: при `true` нет внешних вызовов Telegram; при `false` без токена/chat id — fail-fast в `default_components`
+- Тесты: форматирование, dry_run без сети, форма POST, wiring, экранирование
+
 ## Дальше
 
-- `TelegramDelivery` с bot token + chat ID; учёт `dry_run`; формат сообщений из `ScoreExplanation`
+- Планировщик / периодический запуск (cron и т.д.) — вне этого репозитория или отдельный slice
 - По желанию: `LLMEnrichment` с OpenAI (за интерфейсом, через env)
-- Планировщик / одноразовый режим CLI
+- По желанию: retry/rate limit для Telegram, батчи
 
 ## Этап 2 (не начинать в этом репо без явного scope)
 
