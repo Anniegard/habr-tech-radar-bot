@@ -1,0 +1,9 @@
+---
+description: Conventions for project-docs edits
+globs: "project-docs/**/*.md"
+alwaysApply: false
+---
+
+# Project documentation
+
+Keep updates concrete: what changed, what is next. Avoid filler. Align `TASKS.md` with `HANDOFF.md` and the README “next steps” when you add or finish features.

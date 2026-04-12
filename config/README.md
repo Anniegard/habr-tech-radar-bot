@@ -1,0 +1,1 @@
+Reserved for future YAML/JSON rules (keywords, blocklists, scoring weights). The stub pipeline does not read files from here yet.
