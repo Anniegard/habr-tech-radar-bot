@@ -1,4 +1,4 @@
-.PHONY: install install-dev lint format typecheck test precommit run help
+.PHONY: install install-dev lint format typecheck test check precommit run help
 
 PYTHON ?= python
 
@@ -9,6 +9,7 @@ help:
 	@echo "format       - ruff format src tests"
 	@echo "typecheck    - mypy src tests"
 	@echo "test         - pytest"
+	@echo "check        - lint + typecheck + test"
 	@echo "precommit    - pre-commit run --all-files"
 	@echo "run          - python -m habr_tech_radar"
 
@@ -30,6 +31,8 @@ typecheck:
 
 test:
 	$(PYTHON) -m pytest
+
+check: lint typecheck test
 
 precommit:
 	$(PYTHON) -m pre_commit run --all-files

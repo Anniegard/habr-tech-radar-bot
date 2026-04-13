@@ -14,7 +14,6 @@ from habr_tech_radar.delivery import http_telegram as http_telegram_mod
 from habr_tech_radar.delivery.html_message import (
     TELEGRAM_MAX_MESSAGE_LENGTH,
     format_radar_item_html,
-    strip_tracking_query_params,
     truncate_for_telegram,
 )
 from habr_tech_radar.delivery.http_telegram import (
@@ -26,6 +25,7 @@ from habr_tech_radar.delivery.http_telegram import (
 from habr_tech_radar.models.article import Article, ArticleScore, RadarItem, ScoreExplanation
 from habr_tech_radar.pipeline import default_components
 from habr_tech_radar.settings import Settings
+from habr_tech_radar.url_utils import strip_tracking_query_params
 
 
 def _radar_with(
@@ -130,6 +130,16 @@ def test_truncate_for_telegram_adds_suffix() -> None:
     assert "truncated" in out
 
 
+def test_truncate_for_telegram_respects_codepoints_not_bytes() -> None:
+    snow = "\U0001f600"  # 4-byte UTF-8
+    filler = "a" * TELEGRAM_MAX_MESSAGE_LENGTH
+    long = filler + snow
+    out, truncated = truncate_for_telegram(long)
+    assert truncated
+    assert snow not in out
+    assert len(out) <= TELEGRAM_MAX_MESSAGE_LENGTH
+
+
 def test_telegram_credentials_ok() -> None:
     assert telegram_credentials_ok(Settings(telegram_bot_token="t", telegram_chat_id="1"))
     assert not telegram_credentials_ok(Settings(telegram_bot_token=None, telegram_chat_id="1"))
@@ -206,7 +216,7 @@ def test_live_send_posts_expected_json() -> None:
     req = calls[0]
     assert "/botTEST_TOKEN/sendMessage" in req.full_url
     raw_data = req.data
-    assert isinstance(raw_data, (bytes, bytearray))
+    assert isinstance(raw_data, bytes | bytearray)
     body = json.loads(bytes(raw_data).decode("utf-8"))
     assert body["chat_id"] == "999"
     assert body["parse_mode"] == "HTML"

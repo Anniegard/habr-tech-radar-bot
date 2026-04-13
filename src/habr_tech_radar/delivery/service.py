@@ -30,4 +30,9 @@ class LogOnlyTelegramDelivery:
             )
         if not items:
             logger.info("delivery: nothing to send")
-        return DeliveryStats(sent=len(items), failed=0, skipped_due_budget=0)
+        return DeliveryStats(
+            sent=len(items),
+            failed=0,
+            skipped_due_budget=0,
+            skipped_due_daily_cap=0,
+        )

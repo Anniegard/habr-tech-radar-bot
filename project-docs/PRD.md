@@ -1,25 +1,27 @@
-# Product requirements (MVP foundation)
+# Product requirements (Stage 1)
 
 ## Problem
 
-Staying aware of relevant Habr articles without manual scrolling. The product should surface high-signal posts, score them, and notify via Telegram.
+Staying aware of relevant Habr articles without manual scrolling. The product surfaces higher-signal posts using deterministic rules, scores them, optionally ranks top-N, and notifies via Telegram. It is **not** an auto-commenting or social bot.
 
-## Stage 1 (this repository)
+## Stage 1 (this repository) — implemented
 
-- Monitor new Habr articles (implementation TBD: RSS/API).
-- Filter to interesting items (rules TBD).
-- Score relevance (heuristics and/or signals TBD).
-- Deliver selected items to Telegram (bot/API TBD).
-- Optional LLM enrichment behind an interface (no real provider in scaffold).
+- **Ingestion:** RSS over HTTP (stdlib), resilient parsing, stable article ids for Habr URLs, deduplication across feeds and runs (`SeenArticleStore`).
+- **Filtering:** Env-driven and preset-assisted substring include/exclude on title, summary, and RSS categories.
+- **Scoring:** Integer heuristic scoring with strong / technical / include tiers, hubs, recency, negative penalties; structured `ScoreExplanation`.
+- **Selection:** Top-N per run with tie-breaks.
+- **Delivery:** Telegram Bot API `sendMessage` (HTML), dry-run mode, retries and phase budget, optional daily send cap (UTC).
+- **Operations:** `last_run.json` snapshot, `--health-summary`, structured logging with `run_id` and end-of-run summary line.
+- **LLM:** `NoOpLLMEnrichment` by default; optional provider can plug in behind the same interface (not required for Stage 1).
 
 ## Out of scope here
 
 - **Stage 2**: Private workflow to draft comments on selected articles.
-- Full production integrations in the initial commit (no real Habr/Telegram/OpenAI calls).
-- Docker, CI/CD, Kubernetes, hosted infra.
+- Mandatory OpenAI or other LLM provider (keys may exist for future use only).
+- Docker/Kubernetes/hosted platform; in-process scheduling (use systemd timer on the VM).
 
-## Week-1 success criteria
+## Success criteria
 
-- Runnable Python package with typed settings, logging, stub pipeline, and tests.
-- Clear module boundaries (`ingestion` → `filtering` → `scoring` → `llm` → `delivery`).
+- Runnable Python 3.12 package with typed settings, logging, full Stage 1 pipeline, tests (ruff, mypy, pytest, pre-commit), and CI workflow.
+- Clear module boundaries (`ingestion` → `filtering` → `scoring` → `selection` → `llm` → `delivery`).
 - Documentation and Cursor rules so a developer or agent can continue without guessing intent.

@@ -17,6 +17,7 @@ from habr_tech_radar.delivery.html_message import (
 from habr_tech_radar.delivery.stats import DeliveryStats
 from habr_tech_radar.models.article import RadarItem
 from habr_tech_radar.settings import Settings
+from habr_tech_radar.state.delivery_budget import DailyDeliveryBudget
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +100,7 @@ def _retry_after_from_json_body(body: bytes) -> float | None:
     params = data.get("parameters")
     if isinstance(params, dict):
         ra = params.get("retry_after")
-        if isinstance(ra, (int, float)):
+        if isinstance(ra, int | float):
             return float(ra)
     return None
 
@@ -138,7 +139,7 @@ def _telegram_ok_false_should_retry(parsed: dict[str, Any]) -> tuple[bool, float
     sleep_hint: float | None = None
     if isinstance(params, dict):
         ra = params.get("retry_after")
-        if isinstance(ra, (int, float)):
+        if isinstance(ra, int | float):
             sleep_hint = float(ra)
     if code == 429:
         return True, sleep_hint
@@ -157,12 +158,14 @@ class HttpTelegramDelivery:
         self,
         settings: Settings,
         *,
+        daily_budget: DailyDeliveryBudget | None = None,
         urlopen_impl: Callable[..., Any] | None = None,
         http_timeout_seconds: float = DEFAULT_HTTP_TIMEOUT_SECONDS,
         sleep_fn: Callable[[float], None] | None = None,
         monotonic_fn: Callable[[], float] | None = None,
     ) -> None:
         self._settings = settings
+        self._daily_budget = daily_budget
         self._urlopen_impl = urlopen_impl if urlopen_impl is not None else urlopen
         self._http_timeout_seconds = http_timeout_seconds
         self._sleep_fn = sleep_fn if sleep_fn is not None else time.sleep
@@ -174,15 +177,39 @@ class HttpTelegramDelivery:
         t0 = mono()
         deadline = t0 + budget_s
 
-        if not items:
+        skipped_daily = 0
+        items_to_send = items
+        cap = int(self._settings.max_telegram_messages_per_day)
+        if cap >= 1 and self._daily_budget is not None and not self._settings.dry_run:
+            rem, _sent_today = self._daily_budget.remaining_today(max_per_day=cap)
+            allowed = min(len(items), rem)
+            skipped_daily = len(items) - allowed
+            items_to_send = items[:allowed]
+            if skipped_daily > 0:
+                logger.info(
+                    "delivery: telegram: daily cap=%d remaining=%d; skipping %d item(s)",
+                    cap,
+                    rem,
+                    skipped_daily,
+                )
+
+        if not items_to_send:
             logger.info(
-                "delivery: telegram: 0 item(s) selected; nothing to send (no Telegram calls)"
+                "delivery: telegram: 0 item(s) after daily cap (input=%d, skipped_daily=%d)",
+                len(items),
+                skipped_daily,
             )
             rem_empty = max(0.0, deadline - mono())
-            return DeliveryStats(0, 0, 0, remaining_budget_seconds_at_end=rem_empty)
+            return DeliveryStats(
+                sent=0,
+                failed=0,
+                skipped_due_budget=0,
+                skipped_due_daily_cap=skipped_daily,
+                remaining_budget_seconds_at_end=rem_empty,
+            )
 
         mode = "dry_run" if self._settings.dry_run else "live"
-        n = len(items)
+        n = len(items_to_send)
         logger.info(
             "delivery: telegram: start mode=%s selected=%d budget_s=%.1f",
             mode,
@@ -191,21 +218,23 @@ class HttpTelegramDelivery:
         )
 
         if self._settings.dry_run:
-            sent, skipped = self._send_dry_run_budgeted(items, deadline=deadline, mono=mono)
-            rem = max(0.0, deadline - mono())
+            sent, skipped = self._send_dry_run_budgeted(items_to_send, deadline=deadline, mono=mono)
+            remaining_s = max(0.0, deadline - mono())
             logger.info(
                 "delivery: telegram: summary mode=dry_run selected=%d sent=%d failed=0 "
-                "skipped_due_budget=%d remaining_budget_s=%.2f",
+                "skipped_due_budget=%d skipped_due_daily_cap=%d remaining_budget_s=%.2f",
                 n,
                 sent,
                 skipped,
-                rem,
+                skipped_daily,
+                remaining_s,
             )
             stats = DeliveryStats(
                 sent=sent,
                 failed=0,
                 skipped_due_budget=skipped,
-                remaining_budget_seconds_at_end=rem,
+                skipped_due_daily_cap=skipped_daily,
+                remaining_budget_seconds_at_end=remaining_s,
             )
             if skipped > 0:
                 raise TelegramDeliveryError(
@@ -229,9 +258,9 @@ class HttpTelegramDelivery:
         failed = 0
         skipped_due_budget = 0
 
-        for idx, item in enumerate(items):
+        for idx, item in enumerate(items_to_send):
             if mono() >= deadline:
-                rest = len(items) - idx
+                rest = len(items_to_send) - idx
                 skipped_due_budget += rest
                 logger.warning(
                     "delivery: telegram: global budget exhausted before send; "
@@ -272,21 +301,25 @@ class HttpTelegramDelivery:
                     e.reason,
                 )
 
-        rem = max(0.0, deadline - mono())
+        remaining_s = max(0.0, deadline - mono())
+        if not self._settings.dry_run and sent > 0 and self._daily_budget is not None and cap >= 1:
+            self._daily_budget.record_sent(sent)
         logger.info(
             "delivery: telegram: summary mode=live selected=%d sent=%d failed=%d "
-            "skipped_due_budget=%d remaining_budget_s=%.2f",
+            "skipped_due_budget=%d skipped_due_daily_cap=%d remaining_budget_s=%.2f",
             n,
             sent,
             failed,
             skipped_due_budget,
-            rem,
+            skipped_daily,
+            remaining_s,
         )
         stats = DeliveryStats(
             sent=sent,
             failed=failed,
             skipped_due_budget=skipped_due_budget,
-            remaining_budget_seconds_at_end=rem,
+            skipped_due_daily_cap=skipped_daily,
+            remaining_budget_seconds_at_end=remaining_s,
         )
         incomplete = failed > 0 or skipped_due_budget > 0
         if incomplete:

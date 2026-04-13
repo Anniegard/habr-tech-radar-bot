@@ -5,12 +5,14 @@ import logging
 import re
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import TYPE_CHECKING, Any, cast
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from habr_tech_radar.ingestion.normalize import normalize_article_identity
 from habr_tech_radar.models.article import Article
 from habr_tech_radar.state.seen_store import SeenArticleStore
 
@@ -18,6 +20,17 @@ if TYPE_CHECKING:
     from habr_tech_radar.settings import Settings
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class RssIngestionMetrics:
+    feeds_configured: int
+    feeds_fetched_ok: int
+    items_parsed_total: int
+    items_after_cross_feed_dedup: int
+    items_new: int
+    items_skipped_seen: int
+
 
 _USER_AGENT = "habr-tech-radar/0.1.0 (+https://github.com/)"
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -50,10 +63,19 @@ def _strip_html_to_text(raw: str) -> str:
 def _parse_pub_date(raw: str | None) -> datetime:
     if not raw:
         return datetime.now(UTC)
+    s = raw.strip()
     try:
-        dt = parsedate_to_datetime(raw.strip())
+        dt = parsedate_to_datetime(s)
     except (TypeError, ValueError):
-        return datetime.now(UTC)
+        dt = None
+    if dt is None:
+        iso = s.replace("Z", "+00:00")
+        if "T" not in iso and len(iso) >= 10:
+            iso = iso.replace(" ", "T", 1)
+        try:
+            dt = datetime.fromisoformat(iso)
+        except ValueError:
+            return datetime.now(UTC)
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
     return dt.astimezone(UTC)
@@ -93,21 +115,20 @@ def parse_rss_bytes(data: bytes, *, feed_url: str) -> list[Article]:
             if author:
                 author = author.strip()
 
-            article_id = (guid_raw or "").strip() or link
-            if not article_id or not title:
+            if not title:
                 logger.warning(
-                    "rss: skipping item without id/title in feed %s",
+                    "rss: skipping item without title in feed %s",
                     feed_url,
                 )
                 continue
             if not link:
                 logger.warning(
-                    "rss: skipping item without link (id=%s) in feed %s",
-                    article_id[:80],
+                    "rss: skipping item without link in feed %s",
                     feed_url,
                 )
                 continue
 
+            canon_url, stable_id = normalize_article_identity(link=link)
             summary: str | None = None
             if desc:
                 summary = _strip_html_to_text(desc)
@@ -117,6 +138,9 @@ def parse_rss_bytes(data: bytes, *, feed_url: str) -> list[Article]:
             meta: dict[str, Any] = {"feed_url": feed_url}
             if guid_raw:
                 meta["guid"] = guid_raw.strip()
+            meta["canonical_url"] = canon_url
+            if stable_id != canon_url:
+                meta["stable_id_source"] = "habr_article_num"
             cats = _categories(item)
             if cats:
                 meta["categories"] = cats
@@ -125,9 +149,9 @@ def parse_rss_bytes(data: bytes, *, feed_url: str) -> list[Article]:
 
             art = Article.model_validate(
                 {
-                    "id": article_id,
+                    "id": stable_id,
                     "title": title,
-                    "url": link,
+                    "url": canon_url,
                     "published_at": _parse_pub_date(pub_raw),
                     "summary": summary,
                     "metadata": meta,
@@ -159,15 +183,19 @@ class RssHabrIngestion:
         self._settings = settings
         self._store = store
         self._fetcher = fetcher
+        self.last_metrics: RssIngestionMetrics | None = None
 
     def fetch_new(self) -> list[Article]:
         urls = list(self._settings.habr_rss_urls)
         if not urls:
             logger.info("ingestion: no HTR_HABR_RSS_URLS configured, returning no articles")
+            self.last_metrics = RssIngestionMetrics(0, 0, 0, 0, 0, 0)
             return []
 
         by_id: dict[str, Article] = {}
         timeout = self._settings.rss_fetch_timeout_seconds
+        feeds_ok = 0
+        items_parsed_total = 0
 
         for feed_url in urls:
             try:
@@ -191,18 +219,47 @@ class RssHabrIngestion:
                 logger.error("ingestion: I/O error fetching RSS %s: %s", feed_url, e)
                 continue
 
+            feeds_ok += 1
             parsed = parse_rss_bytes(body, feed_url=feed_url)
+            items_parsed_total += len(parsed)
+            logger.info(
+                "ingestion: feed ok url=%s items_parsed=%d",
+                feed_url,
+                len(parsed),
+            )
             for art in parsed:
-                by_id.setdefault(art.id, art)
+                prev = by_id.get(art.id)
+                if prev is None:
+                    by_id[art.id] = art
+                elif prev.metadata.get("feed_url") != art.metadata.get("feed_url"):
+                    logger.info(
+                        "ingestion: duplicate stable_id=%s kept_first_feed=%s drop_feed=%s",
+                        art.id[:80],
+                        prev.metadata.get("feed_url"),
+                        art.metadata.get("feed_url"),
+                    )
 
         candidates = list(by_id.values())
+        seen_before = sum(1 for a in candidates if self._store.is_seen(a.id))
         new_articles = [a for a in candidates if not self._store.is_seen(a.id)]
         if new_articles:
             self._store.mark_seen(a.id for a in new_articles)
             self._store.save()
+        self.last_metrics = RssIngestionMetrics(
+            feeds_configured=len(urls),
+            feeds_fetched_ok=feeds_ok,
+            items_parsed_total=items_parsed_total,
+            items_after_cross_feed_dedup=len(candidates),
+            items_new=len(new_articles),
+            items_skipped_seen=seen_before,
+        )
         logger.info(
-            "ingestion: RSS returned %d new article(s) (%d total in feed(s))",
-            len(new_articles),
+            "ingestion: summary feeds=%d/%d parsed_items=%d unique=%d new=%d skipped_seen=%d",
+            feeds_ok,
+            len(urls),
+            items_parsed_total,
             len(candidates),
+            len(new_articles),
+            seen_before,
         )
         return new_articles

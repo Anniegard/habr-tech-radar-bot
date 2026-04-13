@@ -27,7 +27,7 @@ def test_parse_rss_bytes_maps_article_fields() -> None:
     articles = parse_rss_bytes(_MINIMAL_RSS, feed_url="http://example.com/feed.xml")
     assert len(articles) == 1
     a = articles[0]
-    assert a.id == "https://habr.com/ru/articles/123456/"
+    assert a.id == "habr:article:123456"
     assert a.title == "Hello world"
     assert str(a.url) == "https://habr.com/ru/articles/123456/"
     assert a.summary == "First paragraph ."
@@ -72,6 +72,41 @@ def test_rss_dedup_across_runs_uses_state_file(tmp_path: Path) -> None:
         fetcher=fetcher,
     ).fetch_new()
     assert second == []
+
+
+def test_rss_cross_feed_dedup_same_article_different_guid(tmp_path: Path) -> None:
+    rss_a = b"""<?xml version="1.0"?><rss><channel>
+<item>
+  <title>T</title>
+  <link>https://habr.com/ru/articles/777/?utm_source=a</link>
+  <guid>a</guid>
+</item>
+</channel></rss>"""
+    rss_b = b"""<?xml version="1.0"?><rss><channel>
+<item>
+  <title>T</title>
+  <link>https://habr.com/ru/articles/777/</link>
+  <guid>b-different</guid>
+</item>
+</channel></rss>"""
+    state = tmp_path / "seen.json"
+    settings = Settings(
+        demo_mode=False,
+        habr_rss_urls=["http://a/feed", "http://b/feed"],
+        state_file=state,
+    )
+    feeds = iter([rss_a, rss_b])
+
+    def fetcher(_url: str, _timeout: float) -> bytes:
+        return next(feeds)
+
+    got = RssHabrIngestion(
+        settings=settings,
+        store=SeenArticleStore(state),
+        fetcher=fetcher,
+    ).fetch_new()
+    assert len(got) == 1
+    assert got[0].id == "habr:article:777"
 
 
 @pytest.mark.parametrize(

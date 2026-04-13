@@ -21,9 +21,19 @@ class LastRunRecord:
     exit_code: int
     fetched_count: int
     selected_count: int
+    filtered_passed: int
+    filtered_rejected: int
+    ranked_count: int
+    rss_feeds_configured: int | None
+    rss_feeds_fetched_ok: int | None
+    rss_items_parsed: int | None
+    rss_unique_items: int | None
+    rss_new_items: int | None
+    rss_skipped_seen: int | None
     sent_count: int
     failed_count: int
     skipped_due_budget_count: int
+    skipped_due_daily_cap_count: int
     telegram_delivery_budget_seconds: float
     remaining_budget_seconds_at_end: float | None
     summary_message: str

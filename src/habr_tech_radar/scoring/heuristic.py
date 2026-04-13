@@ -218,6 +218,8 @@ class HeuristicArticleScoring:
         points = max(0, raw)
 
         selection_summary = _selection_summary(matched_s, matched_t, matched_i, matched_hubs)
+        if selection_summary is None and rec > 0 and not (matched_s or matched_t or matched_i):
+            selection_summary = f"Mostly freshness (recency +{rec})"
 
         expl = ScoreExplanation(
             matched_include_keywords=matched_i,

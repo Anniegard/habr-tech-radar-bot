@@ -30,7 +30,7 @@ habr-tech-radar = "habr_tech_radar.main:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-habr_tech_radar = ["py.typed"]
+habr_tech_radar = ["py.typed", "config/default_radar.json"]
 
 [tool.ruff]
 target-version = "py312"

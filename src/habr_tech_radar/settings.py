@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -7,6 +8,8 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _DEFAULT_HABR_RSS_URLS: tuple[str, ...] = ("https://habr.com/ru/rss/articles/",)
+
+_DEFAULT_PRESET_PATH = Path("config/default_radar.json")
 
 # Built-in scoring lexicons (comma-separated defaults; override via HTR_SCORE_*_KEYWORDS).
 _DEFAULT_SCORE_STRONG_KEYWORDS: str = (
@@ -135,9 +138,28 @@ class Settings(BaseSettings):
         description="Comma/whitespace-separated; reject on category/text match",
     )
     max_selected_articles: int = Field(
-        default=20,
+        default=7,
         ge=1,
-        description="Top N articles after scoring (per run)",
+        description="Top N articles after scoring (per run); preset may override if unset",
+    )
+
+    preset_enabled: bool = Field(
+        default=True,
+        description="Merge config/default_radar.json for fields not set in env/.env",
+    )
+    preset_path: Path = Field(
+        default=_DEFAULT_PRESET_PATH,
+        description="Path to JSON preset (repo config/ or packaged fallback)",
+    )
+
+    max_telegram_messages_per_day: int = Field(
+        default=25,
+        ge=0,
+        description="Cap Telegram messages per UTC day; 0 disables the cap",
+    )
+    delivery_budget_file: Path | None = Field(
+        default=None,
+        description="JSON state for daily send cap; default: next to HTR_STATE_FILE",
     )
 
     score_weight_include_keyword: int = Field(
@@ -255,6 +277,25 @@ class Settings(BaseSettings):
             return v
         return Path(str(v))
 
+    @field_validator("preset_path", mode="before")
+    @classmethod
+    def preset_path_path(cls, v: object) -> Path:
+        if isinstance(v, Path):
+            return v
+        return Path(str(v))
+
+    @field_validator("delivery_budget_file", mode="before")
+    @classmethod
+    def delivery_budget_file_path(cls, v: object) -> Path | None:
+        if v is None:
+            return None
+        if isinstance(v, Path):
+            return v
+        s = str(v).strip()
+        if not s:
+            return None
+        return Path(s)
+
     @field_validator("project_root", mode="before")
     @classmethod
     def project_root_path(cls, v: object) -> Path | None:
@@ -287,6 +328,33 @@ def effective_last_run_path(settings: Settings) -> Path:
     if settings.project_root is not None:
         return (settings.project_root / p).resolve()
     return (Path.cwd() / p).resolve()
+
+
+def effective_last_run_path_from_env() -> Path:
+    """Resolve last run path when Settings() cannot be constructed (same env semantics)."""
+    raw = os.environ.get("HTR_LAST_RUN_PATH", ".runtime/last_run.json")
+    root_raw = (os.environ.get("HTR_PROJECT_ROOT") or "").strip()
+    p = Path(raw)
+    if p.is_absolute():
+        return p.resolve()
+    if root_raw:
+        return (Path(root_raw).resolve() / p).resolve()
+    return (Path.cwd() / p).resolve()
+
+
+def effective_delivery_budget_path(settings: Settings) -> Path | None:
+    """Path for daily Telegram cap state; None when cap disabled."""
+    if settings.max_telegram_messages_per_day < 1:
+        return None
+    if settings.delivery_budget_file is not None:
+        p = settings.delivery_budget_file
+        if p.is_absolute():
+            return p.resolve()
+        if settings.project_root is not None:
+            return (settings.project_root / p).resolve()
+        return (Path.cwd() / p).resolve()
+    base = effective_state_file(settings)
+    return (base.parent / "delivery_budget.json").resolve()
 
 
 def effective_recency_max_points(settings: Settings) -> int:

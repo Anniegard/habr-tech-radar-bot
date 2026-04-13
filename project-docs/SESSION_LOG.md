@@ -2,6 +2,14 @@
 
 *Одна короткая запись на сессию (человек или агент).*
 
+## 2026-04-13 — Stage 1 production hardening
+
+- Пресет `config/default_radar.json` + merge в `main` (не в demo); `HTR_PRESET_*`, сниженный top-N по умолчанию.
+- Ingestion: `habr:article:` id, канонический URL, логи по фидам, метрики в `PipelineResult` и `last_run.json`.
+- Delivery: `DailyDeliveryBudget`, `HTR_MAX_TELEGRAM_MESSAGES_PER_DAY`, `DeliveryStats.skipped_due_daily_cap`; UTF-8-safe truncate.
+- CI: `.github/workflows/ci.yml`; `make check`; тесты: normalize, preset, budget, cross-feed dedup.
+- Документация: README, PRD, ARCHITECTURE, TASKS, HANDOFF, CHANGELOG, `.env.example`.
+
 ## 2026-04-12 — Bootstrap
 
 - Создан пакет Python 3.12 в src-layout, tooling (Ruff, mypy, pytest, pre-commit), заглушка пайплайна, тесты, project-docs, правила Cursor, README.

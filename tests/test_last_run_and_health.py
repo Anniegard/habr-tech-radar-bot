@@ -37,9 +37,13 @@ def test_last_run_json_fields_after_demo_run(
         "exit_code",
         "fetched_count",
         "selected_count",
+        "filtered_passed",
+        "filtered_rejected",
+        "ranked_count",
         "sent_count",
         "failed_count",
         "skipped_due_budget_count",
+        "skipped_due_daily_cap_count",
         "telegram_delivery_budget_seconds",
         "remaining_budget_seconds_at_end",
         "summary_message",
@@ -69,6 +73,7 @@ def test_health_summary_json_flag_implies_check(
                 "sent_count": 1,
                 "failed_count": 0,
                 "skipped_due_budget_count": 0,
+                "skipped_due_daily_cap_count": 0,
                 "telegram_delivery_budget_seconds": 240.0,
                 "remaining_budget_seconds_at_end": 200.0,
                 "summary_message": "ok",
@@ -100,6 +105,7 @@ def test_health_summary_ok_recent_success(tmp_path: Path, monkeypatch: pytest.Mo
                 "sent_count": 1,
                 "failed_count": 0,
                 "skipped_due_budget_count": 0,
+                "skipped_due_daily_cap_count": 0,
                 "telegram_delivery_budget_seconds": 240.0,
                 "remaining_budget_seconds_at_end": 200.0,
                 "summary_message": "ok",
@@ -191,4 +197,3 @@ def test_run_start_log_contains_run_id(
     main(["--demo"])
     joined = " ".join(rec.message for rec in caplog.records)
     assert "run start run_id=" in joined
-

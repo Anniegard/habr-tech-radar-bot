@@ -10,4 +10,5 @@ class DeliveryStats:
     sent: int
     failed: int
     skipped_due_budget: int
+    skipped_due_daily_cap: int = 0
     remaining_budget_seconds_at_end: float | None = None

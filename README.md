@@ -20,7 +20,7 @@ src/habr_tech_radar/   # Application package (settings, pipeline, models, servic
 tests/                 # Pytest suite
 deploy/                # systemd unit templates + install_vm.sh for Ubuntu VM
 scripts/               # Optional future CLI helpers
-config/                # Reserved for future rules (YAML/JSON)
+config/                # Default radar preset (JSON); optional copy for customization
 project-docs/          # PRD, architecture, tasks, handoff, decisions
 .cursor/rules/         # Cursor agent rules
 ```
@@ -114,7 +114,7 @@ sudo systemctl enable --now habr-tech-radar.timer
 
 **Повторы Telegram:** при временных сбоях сети, HTTP **5xx** и **429** `sendMessage` повторяется ограниченное число раз с паузой (см. `HTR_TELEGRAM_SEND_MAX_ATTEMPTS`, `HTR_TELEGRAM_RETRY_BASE_SECONDS` в `.env.example`). Повторы **не продолжаются за пределами** общего монотонного бюджета фазы доставки: `HTR_TELEGRAM_MAX_DELIVERY_SECONDS` (по умолчанию 240 с). В логах: `delivery: telegram: start|retry|summary`, без URL с токеном.
 
-**Снимок последнего прогона:** после каждого запуска пишется атомарно JSON в `HTR_LAST_RUN_PATH` (по умолчанию `.runtime/last_run.json` в рабочем каталоге; на VM удобно абсолютный путь, например под `/var/lib/...`). Для быстрой проверки по SSH: `python -m habr_tech_radar --health-summary` (код **0** только если последний прогон был **success**, файл свежий по `HTR_HEALTH_MAX_AGE_MINUTES`). Строки лога содержат **`run_id=`** на каждой записи (корреляция этапов в `journalctl`).
+**Снимок последнего прогона:** после каждого запуска пишется атомарно JSON в `HTR_LAST_RUN_PATH` (по умолчанию `.runtime/last_run.json` в рабочем каталоге; на VM удобно абсолютный путь, например под `/var/lib/...`). В файле — счётчики RSS, фильтра, ранжирования, доставки (в т.ч. `skipped_due_daily_cap` при дневном лимите Telegram) и строка `summary_message`. Для быстрой проверки по SSH: `python -m habr_tech_radar --health-summary` (код **0** только если последний прогон был **success**, файл свежий по `HTR_HEALTH_MAX_AGE_MINUTES`). Строки лога содержат **`run_id=`** на каждой записи (корреляция этапов в `journalctl`); в конце прогона — **`run summary:`** с ключевыми метриками.
 
 ### Управление и логи
 
@@ -156,6 +156,7 @@ python -m habr_tech_radar
 | `make format`      | `ruff format`                      |
 | `make typecheck`   | `mypy src tests`                   |
 | `make test`        | `pytest`                           |
+| `make check`       | `lint` + `typecheck` + `test`      |
 | `make precommit`   | `pre-commit run --all-files`       |
 | `make run`         | `python -m habr_tech_radar`        |
 | (ops)              | `python -m habr_tech_radar --health-summary` |
@@ -170,6 +171,8 @@ python -m mypy src tests
 python -m habr_tech_radar
 ```
 
+В CI (GitHub Actions) запускаются те же проверки: см. [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
 ## Переменные окружения
 
 Префикс `**HTR_**`. Список — в `[.env.example](.env.example)`.
@@ -179,6 +182,8 @@ python -m habr_tech_radar
 - `HTR_LOG_LEVEL` — по умолчанию `INFO`
 - `HTR_DRY_RUN` — по умолчанию `true`: сообщения **форматируются** и пишутся в лог как «would send», **без** HTTP к Telegram. Для реальной отправки задайте `false` и токен + chat id.
 - `HTR_DEMO_MODE` — при `true` ingestion возвращает одну синтетическую статью (без сети)
+- `HTR_PRESET_ENABLED` — по умолчанию `true`: подмешивать [`config/default_radar.json`](config/default_radar.json) для полей, **не заданных** в env/`.env` (персональные `HTR_INCLUDE_*` в `.env` имеют приоритет). Для «чистого» пермиссивного режима без пресета: `HTR_PRESET_ENABLED=false` и пустые include-списки.
+- `HTR_PRESET_PATH` — путь к JSON-пресету (относительно cwd или `HTR_PROJECT_ROOT`); при отсутствии файла используется встроенная копия из пакета.
 - `HTR_HABR_RSS_URLS` — один или несколько URL RSS (через запятую или пробел). По умолчанию лента русскоязычных статей Habr. Пустое значение отключает запросы (для тестов/CI).
 - `HTR_STATE_FILE` — путь к JSON-файлу с уже виденными `id` статей; по умолчанию `.habr_tech_radar_seen.json` относительно текущей рабочей директории (для systemd задайте `WorkingDirectory` в корень клона или используйте абсолютный путь). Повторный запуск с тем же фидом обычно не дублирует статьи.
 - `HTR_PROJECT_ROOT` — если задан, **относительный** `HTR_STATE_FILE` резолвится от этого каталога (удобно, когда cwd не совпадает с каталогом данных).
@@ -186,6 +191,7 @@ python -m habr_tech_radar
 - `HTR_TELEGRAM_BOT_TOKEN`, `HTR_TELEGRAM_CHAT_ID` — для **живой** доставки при `HTR_DRY_RUN=false` (оба непустые). Бот: [@BotFather](https://t.me/BotFather); **chat id** — ваш user id или id группы (удобно узнать через [@userinfobot](https://t.me/userinfobot) или аналоги). При `HTR_DRY_RUN=true` можно оставить пустыми.
 - `HTR_TELEGRAM_SEND_MAX_ATTEMPTS`, `HTR_TELEGRAM_RETRY_BASE_SECONDS` — лимит попыток `sendMessage` на статью и базовая задержка для backoff (см. `.env.example`).
 - `HTR_TELEGRAM_MAX_DELIVERY_SECONDS` — общий лимит времени (монотонные секунды) на всю фазу доставки в Telegram; по умолчанию `240`.
+- `HTR_MAX_TELEGRAM_MESSAGES_PER_DAY` — максимум **реальных** `sendMessage` за календарные сутки UTC (по умолчанию `25`; `0` — без лимита). Учёт в JSON рядом с state: `delivery_budget.json` или `HTR_DELIVERY_BUDGET_FILE`. В `HTR_DRY_RUN=true` лимит не расходуется (прогон «вхолостую»).
 - `HTR_TELEGRAM_FORMAT_MODE` — `prod` (компактные сообщения по умолчанию) или `debug` (полный разбор score и сигналов).
 - `HTR_LAST_RUN_PATH` — путь к JSON последнего прогона (атомарная запись); по умолчанию `.runtime/last_run.json` (относительный путь резолвится как `HTR_STATE_FILE`, см. `HTR_PROJECT_ROOT`).
 - `HTR_HEALTH_MAX_AGE_MINUTES` — для `--health-summary`: максимальный возраст `finished_at_utc` в минутах, чтобы считать прогон «свежим»; по умолчанию `180`.
@@ -197,13 +203,13 @@ python -m habr_tech_radar
 Правила задаются через `HTR_` (см. `.env.example`). Строки ключевых слов и хабов — **через запятую или пробел**; сопоставление **без учёта регистра**, по **подстроке** в заголовке, кратком тексте (`summary`) и строках категорий RSS (`metadata["categories"]`).
 
 - **Исключения (`HTR_EXCLUDE_*`)**: если сработало — статья **сразу отбрасывается** и не попадает в скоринг.
-- **Включения (`HTR_INCLUDE_*`)**: если оба списка (`INCLUDE_KEYWORDS` и `INCLUDE_HUBS`) **пусты** — режим **пермиссивный** (действуют только исключения). Если хотя бы один список непустой — статья проходит фильтр, если есть совпадение **хотя бы по одному** ключевому слову **или** хабу (логика **ИЛИ**).
+- **Включения (`HTR_INCLUDE_*`)**: если оба списка (`INCLUDE_KEYWORDS` и `INCLUDE_HUBS`) **пусты** — режим **пермиссивный** (действуют только исключения). С пресетом по умолчанию списки из [`config/default_radar.json`](config/default_radar.json) дают **гейт по OR** (ключевое слово или хаб). Если хотя бы один список непустой — статья проходит фильтр при совпадении **хотя бы по одному** ключевому слову **или** хабу (логика **ИЛИ**).
 - **Скоринг**: целочисленные очки с **уровнями сигналов** (приоритет: strong → technical → include): встроенные списки `HTR_SCORE_STRONG_KEYWORDS` и `HTR_SCORE_TECHNICAL_KEYWORDS` (или пустые строки, чтобы отключить встроенные дефолты), обычные include-ключи и хабы, бонус за появление сигнала в **заголовке**, линейный **бонус свежести** (по умолчанию меньше, чем раньше: `HTR_SCORE_WEIGHT_RECENCY_MAX`, опционально жёсткий потолок `HTR_SCORE_RECENCY_MAX_POINTS` вместо него), **штрафы** за совпадения из `HTR_SCORE_NEGATIVE_KEYWORDS` (`HTR_SCORE_WEIGHT_PENALTY_PER_HIT` за каждое совпадение). Итоговые очки не уходят ниже нуля. Веса: `HTR_SCORE_WEIGHT_STRONG_KEYWORD`, `HTR_SCORE_WEIGHT_TECHNICAL_SIGNAL`, `HTR_SCORE_WEIGHT_INCLUDE_KEYWORD`, остальные — см. `.env.example`. У каждой оценки — `ScoreExplanation` (совпадения по группам, `breakdown`, краткое `selection_summary`).
-- **Ранжирование**: сортировка по убыванию очков; при равенстве — **новее по дате**, затем по `id` для стабильности. В выдачу попадает не больше **`HTR_MAX_SELECTED_ARTICLES`** (по умолчанию `20`).
+- **Ранжирование**: сортировка по убыванию очков; при равенстве — **новее по дате**, затем по `id` для стабильности. В выдачу попадает не больше **`HTR_MAX_SELECTED_ARTICLES`** (дефолт в коде `7`; пресет может задать то же, если переменная не переопределена).
 
 ### Режим RSS и дедупликация
 
-В обычном режиме (`HTR_DEMO_MODE=false`) приложение загружает указанные RSS-ленты по HTTP, парсит записи в модель `Article`, отбрасывает элементы с уже известными `id` (файл `HTR_STATE_FILE`) и возвращает в пайплайн только **новые** статьи. После успешного разбора новые `id` дописываются в JSON. Если процесс упал до сохранения, при следующем запуске часть статей может снова попасть в выдачу.
+В обычном режиме (`HTR_DEMO_MODE=false`) приложение загружает указанные RSS-ленты по HTTP, парсит записи в модель `Article`, **нормализует URL** (https, без лишнего `www`, без tracking query) и строит стабильный **`id`** вида `habr:article:<число>` для типичных ссылок `/ru/articles/NNNNNN/`, чтобы не дублировать одну статью из разных фидов с разным `guid`. Элементы с уже известными `id` отбрасываются (файл `HTR_STATE_FILE`); в пайплайн попадают только **новые** статьи. После успешного разбора новые `id` дописываются в JSON. Если процесс упал до сохранения, при следующем запуске часть статей может снова попасть в выдачу.
 
 ## Запуск
 
@@ -226,6 +232,44 @@ python -m habr_tech_radar
 1. Установите `HTR_TELEGRAM_BOT_TOKEN` и `HTR_TELEGRAM_CHAT_ID`.
 2. Установите `HTR_DRY_RUN=false`.
 3. Запустите пайплайн (например `python -m habr_tech_radar`). Если `HTR_DRY_RUN=false`, а токен или chat id пустые, приложение завершится с **кодом выхода 2** и одной строкой ошибки в логе (fail-fast, без traceback). Если после повторов остались ошибки доставки — **код 1** и краткое сообщение без traceback.
+
+### Dry-run без Telegram (локально или на VM)
+
+```bash
+cd /path/to/habr-tech-radar-bot
+source .venv/bin/activate
+export HTR_DRY_RUN=true
+export HTR_PRESET_ENABLED=true   # или false для пермиссивного режима
+python -m habr_tech_radar
+```
+
+Сообщения только в лог (`delivery: telegram dry_run would send`); сеть нужна для RSS, если не `HTR_DEMO_MODE` и не пустой список лент.
+
+### Пример prod-настроек на VM (без секретов)
+
+В `EnvironmentFile` для systemd (значения-плейсхолдеры замените сами):
+
+```bash
+HTR_PROJECT_ROOT=/home/htrbot/habr-tech-radar-bot
+HTR_STATE_FILE=/var/lib/htrbot/habr-tech-radar/seen.json
+HTR_LAST_RUN_PATH=/var/lib/htrbot/habr-tech-radar/last_run.json
+HTR_DRY_RUN=false
+HTR_TELEGRAM_BOT_TOKEN=<from BotFather>
+HTR_TELEGRAM_CHAT_ID=<your chat id>
+HTR_PRESET_ENABLED=true
+HTR_MAX_TELEGRAM_MESSAGES_PER_DAY=25
+HTR_LOG_LEVEL=INFO
+```
+
+### Troubleshooting
+
+| Симптом | Что проверить |
+|--------|----------------|
+| `health-summary` не даёт 0 | `journalctl` на ошибки последнего прогона; `finished_at_utc` не старше `HTR_HEALTH_MAX_AGE_MINUTES`; файл `HTR_LAST_RUN_PATH` существует и `status=success`. |
+| Нет статей при рабочем интернете | Пустой `HTR_HABR_RSS_URLS` отключает HTTP; смотрите `ingestion: feed ok` / `ingestion: summary` в логах. |
+| Слишком много/мало в Telegram | `HTR_MAX_SELECTED_ARTICLES`, пресет в `config/default_radar.json`, `HTR_INCLUDE_*`, `HTR_MAX_TELEGRAM_MESSAGES_PER_DAY`. |
+| Дубли статей | Обычно после сброса `HTR_STATE_FILE`; стабильный `id` — `habr:article:<n>`. |
+| Ошибка конфигурации при старте | Код выхода 2; при невалидном `.env` снимок пишется в `HTR_LAST_RUN_PATH` (если путь из env разрешим). |
 
 ## Работа с агентами (Cursor)
 

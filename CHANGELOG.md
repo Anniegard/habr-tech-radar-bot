@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+- Пресет личного техрадара: `config/default_radar.json`, `HTR_PRESET_ENABLED`, `HTR_PRESET_PATH`; env/`.env` переопределяют пресет для явно заданных полей.
+- Дефолтный `HTR_MAX_SELECTED_ARTICLES=7`; RSS: нормализация URL, стабильный `id` `habr:article:<n>`, сводные логи по фидам и дедуп между фидами.
+- Telegram: дневной лимит реальных отправок `HTR_MAX_TELEGRAM_MESSAGES_PER_DAY`, JSON `delivery_budget.json`; расширенный `last_run.json`, строка `run summary:`; обрезка сообщений по Unicode code points.
+- `make check`; GitHub Actions CI (ruff, mypy, pytest).
+- Документация: README (troubleshooting, dry-run, prod example), обновлены PRD/ARCHITECTURE.
+
 - Скоринг: уровни strong / technical / include, штрафы по negative keywords, сниженный вклад свежести; `ScoreExplanation` расширен; Telegram: режимы `HTR_TELEGRAM_FORMAT_MODE=prod|debug`, очистка tracking-параметров в ссылке.
 
 ### 2026-04-12

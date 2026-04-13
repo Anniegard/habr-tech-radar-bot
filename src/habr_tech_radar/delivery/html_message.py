@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import html
 from datetime import UTC, datetime
-from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from habr_tech_radar.models.article import RadarItem
+from habr_tech_radar.url_utils import strip_tracking_query_params
 
 TELEGRAM_MAX_MESSAGE_LENGTH = 4096
 _TRUNCATION_SUFFIX = "\n\n… (truncated)"
@@ -21,22 +21,6 @@ _BREAKDOWN_LABELS: dict[str, str] = {
 }
 
 
-def strip_tracking_query_params(url: str) -> str:
-    """Remove utm_* and common tracking query params; keep other query pairs."""
-    p = urlparse(url)
-    if not p.query:
-        return url
-    pairs = parse_qs(p.query, keep_blank_values=True)
-    kept: dict[str, list[str]] = {}
-    for k, vals in pairs.items():
-        kl = k.casefold()
-        if kl.startswith("utm_") or kl in ("fbclid", "gclid"):
-            continue
-        kept[k] = vals
-    new_query = urlencode(kept, doseq=True) if kept else ""
-    return urlunparse((p.scheme, p.netloc, p.path, p.params, new_query, p.fragment))
-
-
 def _fmt_utc(dt: datetime | None) -> str | None:
     if dt is None:
         return None
@@ -48,11 +32,12 @@ def _fmt_utc(dt: datetime | None) -> str | None:
 
 
 def _truncate_plain(text: str, max_len: int) -> str:
-    if len(text) <= max_len:
+    chars = list(text)
+    if len(chars) <= max_len:
         return text
     if max_len < 2:
         return "…"
-    return text[: max_len - 1].rstrip() + "…"
+    return "".join(chars[: max_len - 1]).rstrip() + "…"
 
 
 def _fmt_breakdown_value(key: str, pts: int) -> str:
@@ -180,10 +165,13 @@ def truncate_for_telegram(
     *,
     max_len: int = TELEGRAM_MAX_MESSAGE_LENGTH,
 ) -> tuple[str, bool]:
-    """If text exceeds Telegram limit, truncate and return (text, True)."""
-    if len(text) <= max_len:
+    """If text exceeds Telegram limit, truncate by Unicode code points and return (text, True)."""
+    if max_len < 1:
+        return "", True
+    chars = list(text)
+    if len(chars) <= max_len:
         return text, False
     budget = max_len - len(_TRUNCATION_SUFFIX)
     if budget < 1:
         return _TRUNCATION_SUFFIX.strip(), True
-    return text[:budget] + _TRUNCATION_SUFFIX, True
+    return "".join(chars[:budget]) + _TRUNCATION_SUFFIX, True

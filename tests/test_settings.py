@@ -9,10 +9,12 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HTR_LOG_LEVEL", "INFO")
     monkeypatch.setenv("HTR_DRY_RUN", "true")
     monkeypatch.setenv("HTR_DEMO_MODE", "false")
+    monkeypatch.setenv("HTR_PRESET_ENABLED", "false")
     s = Settings()
     assert s.log_level == "INFO"
     assert s.dry_run is True
     assert s.demo_mode is False
+    assert s.max_selected_articles == 7
 
 
 def test_telegram_format_mode_accepts_aliases(monkeypatch: pytest.MonkeyPatch) -> None:

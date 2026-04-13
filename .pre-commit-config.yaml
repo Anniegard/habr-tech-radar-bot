@@ -12,5 +12,6 @@ repos:
         additional_dependencies:
           - pydantic>=2.10
           - pydantic-settings>=2.6
+          - pytest>=8.0
         args: [--config-file=pyproject.toml]
         files: ^(src/|tests/)
