@@ -2,7 +2,7 @@
 
 ## ADR-001: Python 3.12 and src layout
 
-**Context:** Solo / agent-friendly pet project.
+**Context:** Small open-source pet project, one primary maintainer.
 
 **Decision:** Require Python 3.12, package under `src/habr_tech_radar/`.
 

@@ -1,17 +1,13 @@
 # Roadmap
 
-## Stage 1 (near term)
+## Near term
 
-1. Habr ingestion (RSS or API), deduplication, last-seen state (file or SQLite).
-2. Filtering: hubs, keywords, blocklist; load optional config from `config/`.
-3. Scoring: simple heuristics first; optional LLM-assisted signals later.
+1. Habr ingestion (RSS), deduplication, last-seen state (JSON file).
+2. Filtering: hubs, keywords, blocklists; optional richer config under `config/`.
+3. Scoring: heuristics first; optional additional signals later.
 4. Telegram: send messages with title, link, score; respect `dry_run`.
-5. Scheduling: cron/Task Scheduler or a tiny loop (keep boring).
-
-## Stage 2 (later)
-
-- Comment-draft generation workflow for a subset of articles (private; not part of this scaffold).
+5. Scheduling: systemd timer or cron (keep scheduling outside the Python process).
 
 ## Non-goals
 
-- Multi-user product, web UI (unless you explicitly add it), Kubernetes.
+- Multi-user product as a service, mandatory web UI, Kubernetes-by-default.

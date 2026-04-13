@@ -6,6 +6,19 @@ from pathlib import Path
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _env_file_tuple() -> tuple[Path, ...]:
+    """Tracked defaults (repo) first, then local `.env`; last file wins for duplicate keys."""
+    paths: list[Path] = []
+    bundled = _REPO_ROOT / "config" / "defaults.env"
+    if bundled.is_file():
+        paths.append(bundled)
+    paths.append(Path(".env"))
+    return tuple(paths)
+
+
 _DEFAULT_HABR_RSS_URLS: tuple[str, ...] = ("https://habr.com/ru/rss/articles/",)
 
 # Built-in scoring lexicons (comma-separated defaults; override via HTR_SCORE_*_KEYWORDS).
@@ -48,7 +61,7 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="HTR_",
-        env_file=".env",
+        env_file=_env_file_tuple(),
         env_file_encoding="utf-8",
         extra="ignore",
     )

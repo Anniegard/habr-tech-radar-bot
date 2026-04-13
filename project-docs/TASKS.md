@@ -16,7 +16,7 @@
 - `HeuristicArticleFilter`: include/exclude по ключевым словам и хабам (подстроки, casefold), пермиссивный режим без include-правил, OR между keyword и hub при гейтинге
 - `HeuristicArticleScoring`: целочисленные веса, бонус за заголовок, свежесть по дате; `ScoreExplanation` + разбивка очков
 - `select_top_scored`: топ-N, тай-брейк по дате и `id`; `HTR_MAX_SELECTED_ARTICLES`
-- Настройки и `.env.example` для списков и весов; тесты на фильтр, скоринг, ранжирование, парсинг списков
+- Настройки и `.env.example` для списков и весов; тесты на фильтр, скоринг, ранжирование, парсинг списков в настройках
 
 ## Сделано (Stage 1 — Telegram delivery)
 
@@ -38,12 +38,12 @@
 - `HttpTelegramDelivery`: ограниченные повторы `sendMessage` (сеть, 5xx, 429, flood в JSON), backoff, логи `start` / `retry` / `summary`; `TelegramDeliveryError` → CLI код 1
 - Тесты на политику повторов и `main` exit 1; обновлены README, HANDOFF, CHANGELOG, SESSION_LOG, `.env.example`
 
+## Сделано (публичная чистка и layered config)
+
+- Убраны служебные IDE-файлы и лишний внутренний контекст из публичных текстов
+- `config/defaults.env` + загрузка слоями; упрощён `.env.example`; обновлены README, deploy, project-docs
+
 ## Дальше
 
-- По желанию: `LLMEnrichment` с OpenAI (за интерфейсом, через env)
-- Мониторинг / алерты по доставке; по желанию — retry RSS отдельно от Telegram
-
-## Этап 2 (не начинать в этом репо без явного scope)
-
-- Workflow черновиков комментариев к выбранным статьям
-
+- По желанию: `LLMEnrichment` с внешним провайдером (за интерфейсом, через env)
+- Мониторинг / алерты по доставке; по желанию — отдельные retry для RSS

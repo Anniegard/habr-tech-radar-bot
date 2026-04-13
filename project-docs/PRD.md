@@ -2,24 +2,23 @@
 
 ## Problem
 
-Staying aware of relevant Habr articles without manual scrolling. The product should surface high-signal posts, score them, and notify via Telegram.
+Staying aware of relevant Habr articles without manual scrolling. The product surfaces high-signal posts, scores them, and notifies via Telegram.
 
-## Stage 1 (this repository)
+## Scope (this repository)
 
-- Monitor new Habr articles (implementation TBD: RSS/API).
-- Filter to interesting items (rules TBD).
-- Score relevance (heuristics and/or signals TBD).
-- Deliver selected items to Telegram (bot/API TBD).
-- Optional LLM enrichment behind an interface (no real provider in scaffold).
+- Monitor new Habr articles (RSS).
+- Filter to interesting items (configurable rules).
+- Score relevance (heuristics).
+- Deliver selected items to Telegram (Bot API).
+- LLM enrichment is modeled in the pipeline but not connected to an external provider.
 
 ## Out of scope here
 
-- **Stage 2**: Private workflow to draft comments on selected articles.
-- Full production integrations in the initial commit (no real Habr/Telegram/OpenAI calls).
-- Docker, CI/CD, Kubernetes, hosted infra.
+- Full hosted production platform as a managed service (this repo targets self-hosted runs).
+- Docker, CI/CD, Kubernetes as required infrastructure for the app itself.
 
 ## Week-1 success criteria
 
-- Runnable Python package with typed settings, logging, stub pipeline, and tests.
+- Runnable Python package with typed settings, logging, pipeline, and tests.
 - Clear module boundaries (`ingestion` → `filtering` → `scoring` → `llm` → `delivery`).
-- Documentation and Cursor rules so a developer or agent can continue without guessing intent.
+- Documentation so a developer can continue without guessing intent.

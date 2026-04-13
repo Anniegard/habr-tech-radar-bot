@@ -27,12 +27,12 @@ flowchart LR
 
 | Path                              | Role                                                   |
 | --------------------------------- | ------------------------------------------------------ |
-| `src/habr_tech_radar/settings.py` | `pydantic-settings`, env prefix `HTR_`                 |
+| `src/habr_tech_radar/settings.py` | `pydantic-settings`, env prefix `HTR_`, layered `config/defaults.env` + `.env` |
 | `src/habr_tech_radar/pipeline.py` | `run_pipeline`, `default_components`                   |
 | `src/habr_tech_radar/state/`      | `SeenArticleStore` (seen article IDs JSON file)        |
 | `src/habr_tech_radar/models/`     | `Article`, `FilterResult`, `ArticleScore`, `ScoreExplanation`, `RadarItem` |
 | `src/habr_tech_radar/selection.py` | `select_top_scored` (order + cap)                         |
-| `config/`                         | Reserved for future rules files (not read yet)         |
+| `config/`                         | `defaults.env` (non-secret defaults); optional future rules files |
 
 
 ## Design choices

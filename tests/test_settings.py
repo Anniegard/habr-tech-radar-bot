@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
+from pydantic_settings import SettingsConfigDict
 
 from habr_tech_radar.settings import Settings, parse_comma_separated_list
 
@@ -50,3 +53,34 @@ def test_settings_keyword_lists_from_env(monkeypatch: pytest.MonkeyPatch) -> Non
     assert parse_comma_separated_list(s.include_keywords) == ["alpha", "beta"]
     assert parse_comma_separated_list(s.exclude_hubs) == ["hub_a", "hub_b"]
     assert s.max_selected_articles == 3
+
+
+def test_env_file_layering_local_overrides_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Last env file wins; real repo uses config/defaults.env then .env."""
+    monkeypatch.chdir(tmp_path)
+    defaults = tmp_path / "defaults.env"
+    local = tmp_path / ".env"
+    defaults.write_text("HTR_LOG_LEVEL=WARNING\nHTR_MAX_SELECTED_ARTICLES=5\n", encoding="utf-8")
+    local.write_text("HTR_LOG_LEVEL=ERROR\n", encoding="utf-8")
+
+    class LayeredSettings(Settings):
+        model_config = SettingsConfigDict(
+            env_prefix="HTR_",
+            env_file=(defaults, local),
+            env_file_encoding="utf-8",
+            extra="ignore",
+        )
+
+    s = LayeredSettings()
+    assert s.log_level == "ERROR"
+    assert s.max_selected_articles == 5
+
+
+def test_environment_overrides_env_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("HTR_LOG_LEVEL=WARNING\n", encoding="utf-8")
+    monkeypatch.setenv("HTR_LOG_LEVEL", "DEBUG")
+    s = Settings()
+    assert s.log_level == "DEBUG"

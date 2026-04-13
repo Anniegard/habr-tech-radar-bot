@@ -8,6 +8,21 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INSTALL_DEV=0
 COPY_SYSTEMD=0
 
+pick_python() {
+  if command -v python3.12 >/dev/null 2>&1; then
+    echo "python3.12"
+    return 0
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    ver="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo "0.0")"
+    if [[ "$ver" == 3.12 ]]; then
+      echo "python3"
+      return 0
+    fi
+  fi
+  return 1
+}
+
 usage() {
   echo "Usage: $0 [--dev] [--install-systemd]"
   echo "  Run as normal user: creates .venv and pip install -e ."
@@ -45,13 +60,15 @@ fi
 
 cd "$REPO_ROOT"
 
-if ! command -v python3.12 >/dev/null 2>&1; then
-  echo "python3.12 not found in PATH. Install Python 3.12 (e.g. apt install python3.12 python3.12-venv on Ubuntu)." >&2
+if ! PY="$(pick_python)"; then
+  echo "Python 3.12 is required but was not found (tried python3.12 and python3)." >&2
+  echo "On Ubuntu: sudo apt install python3.12 python3.12-venv" >&2
+  echo "Or use deadsnakes PPA: https://launchpad.net/~deadsnakes/+archive/ubuntu/ppa" >&2
   exit 1
 fi
 
 if [[ ! -d .venv ]]; then
-  python3.12 -m venv .venv
+  "$PY" -m venv .venv
 fi
 
 # shellcheck source=/dev/null
@@ -68,7 +85,8 @@ echo ""
 echo "Repo:     $REPO_ROOT"
 echo "Venv:     $REPO_ROOT/.venv"
 echo "Activate: source $REPO_ROOT/.venv/bin/activate"
-echo "Config:   copy .env.example to $REPO_ROOT/.env and edit (no secrets in git)."
+echo "Defaults: $REPO_ROOT/config/defaults.env (tracked; non-secrets)"
+echo "Secrets:  create $REPO_ROOT/.env from .env.example (chmod 600); overrides defaults"
 echo "Run once: $REPO_ROOT/.venv/bin/habr-tech-radar"
 echo "systemd uses: $REPO_ROOT/deploy/run_once.sh (flock; chmod +x if needed)"
 echo ""

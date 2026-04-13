@@ -2,13 +2,15 @@
 
 ## [Unreleased]
 
+- Публичная чистка: убраны служебные IDE-файлы и лишний контекст из README и project-docs; верх README на русском.
+- Конфигурация: отслеживаемый `config/defaults.env` (несекретные дефолты), загрузка слоями; упрощён `.env.example`.
 - Скоринг: уровни strong / technical / include, штрафы по negative keywords, сниженный вклад свежести; `ScoreExplanation` расширен; Telegram: режимы `HTR_TELEGRAM_FORMAT_MODE=prod|debug`, очистка tracking-параметров в ссылке.
 
 ### 2026-04-12
 
 - Операции на VM: `deploy/run_once.sh` с `flock` (по умолчанию `/var/lib/habr-tech-radar/pipeline.lock`, переопределение `HTR_PIPELINE_LOCK_FILE`); при занятой блокировке — сообщение `skip: overlap`, код выхода 0. `habr-tech-radar.service` вызывает wrapper вместо прямого `habr-tech-radar`.
 - Telegram: ограниченные повторы `sendMessage` при временных ошибках (сеть, HTTP 5xx/429, flood в JSON-ответе), экспоненциальный backoff; без повторов на типичные постоянные ошибки (4xx кроме 429 и т.п.). Логи `delivery: telegram: start|retry|summary`; `HTR_TELEGRAM_SEND_MAX_ATTEMPTS`, `HTR_TELEGRAM_RETRY_BASE_SECONDS`. Новое исключение `TelegramDeliveryError`, CLI код выхода **1**; конфигурация Telegram по-прежнему код **2**.
-- Тесты политики доставки и `main` exit 1; обновлены README, `project-docs/*`, `.env.example`.
+- Тесты политики доставки и `main` exit 1; обновлены README, `project-docs/`*, `.env.example`.
 
 ### 2026-04-12
 
@@ -17,8 +19,7 @@
 - CLI: при ошибке конфигурации Telegram в живом режиме — код выхода 2 и одна строка в лог (`TelegramConfigurationError` в `main`); тесты в `tests/test_paths.py`.
 - `.env.example`: дополнены комментарии для VM, плейсхолдеры Telegram, примеры `HTR_STATE_FILE` / `HTR_PROJECT_ROOT`.
 - Telegram: `HttpTelegramDelivery` (stdlib HTTP JSON `sendMessage`), HTML-сообщения из `RadarItem` / `ScoreExplanation` (`format_radar_item_html`), строгий `HTR_DRY_RUN` (без сети при `true`), fail-fast при `HTR_DRY_RUN=false` без токена и chat id; тесты и обновление README / project-docs / `.env.example`.
-- Bootstrap: Python 3.12, src-layout, tooling (Ruff, mypy, pytest, pre-commit), stub pipeline, tests, project-docs, Cursor rules.
-- Документация: README и часть `project-docs` на русском; правило `boss-brief-ru.mdc`.
+- Bootstrap: Python 3.12, src-layout, tooling (Ruff, mypy, pytest, pre-commit), stub pipeline, tests, project-docs.
+- Документация: README и часть `project-docs` на русском.
 - RSS ingestion (`RssHabrIngestion`, stdlib HTTP/XML) и дедупликация между запусками через JSON `SeenArticleStore`; настройки `HTR_HABR_RSS_URLS`, `HTR_STATE_FILE`, `HTR_RSS_FETCH_TIMEOUT_SECONDS`; демо-режим без изменений.
 - Эвристический фильтр и скоринг по env (`HTR_INCLUDE_*`, `HTR_EXCLUDE_*`, веса `HTR_SCORE_*`), модель `ScoreExplanation`, отбор топ-N (`HTR_MAX_SELECTED_ARTICLES`), тесты и обновление документации.
-

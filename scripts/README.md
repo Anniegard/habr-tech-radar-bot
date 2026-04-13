@@ -1,1 +1,1 @@
-Optional one-off scripts (maintenance, data export) will live here. No scripts in the MVP scaffold.
+Optional one-off scripts (maintenance, data export) can live here. The core package does not depend on this directory.

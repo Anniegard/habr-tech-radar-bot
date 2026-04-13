@@ -1,10 +1,10 @@
 # Журнал сессий
 
-*Одна короткая запись на сессию (человек или агент).*
+*Одна короткая запись на сессию.*
 
 ## 2026-04-12 — Bootstrap
 
-- Создан пакет Python 3.12 в src-layout, tooling (Ruff, mypy, pytest, pre-commit), заглушка пайплайна, тесты, project-docs, правила Cursor, README.
+- Создан пакет Python 3.12 в src-layout, tooling (Ruff, mypy, pytest, pre-commit), заглушка пайплайна, тесты, project-docs, README.
 - Запуск по умолчанию — заглушки (без сети). Демо: `HTR_DEMO_MODE=1` или `--demo`.
 
 **Дальше:** реализовать Habr ingestion за `HabrIngestion` (RSS), персистенцию виденных id.
@@ -49,3 +49,8 @@
 - Env: `HTR_TELEGRAM_SEND_MAX_ATTEMPTS`, `HTR_TELEGRAM_RETRY_BASE_SECONDS`. Тесты в `tests/test_delivery_telegram.py`, `tests/test_paths.py`. Документация и CHANGELOG обновлены.
 
 **Дальше:** мониторинг; LLM за интерфейсом; опционально retry RSS.
+
+## 2026-04-13 — Публичная чистка и layered config
+
+- Убраны служебные IDE-файлы; README и project-docs без лишнего внутреннего контекста; верх README переписан на русский.
+- Добавлен отслеживаемый `config/defaults.env`, загрузка в `Settings`: `defaults.env` затем `.env`; упрощён `.env.example`; обновлены `deploy/install_vm.sh`, CHANGELOG, HANDOFF, TASKS.

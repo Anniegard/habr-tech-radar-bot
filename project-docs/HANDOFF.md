@@ -8,12 +8,17 @@
 - **Демо:** `python -m habr_tech_radar --demo` или `HTR_DEMO_MODE=true` — одна синтетическая статья по пайплайну; сеть и state-файл для ingestion не используются; доставка по умолчанию в режиме `dry_run` (лог с HTML-текстом).
 - **Пустой список лент:** `HTR_HABR_RSS_URLS=` (пусто) — без HTTP, ingestion возвращает 0 статей (удобно для тестов без сети).
 
+## Конфигурация
+
+- Несекретные дефолты: **`config/defaults.env`** (в git).
+- Секреты и overrides: **`.env`** в корне клона (не в git); шаблон — `.env.example`.
+- Порядок: дефолты в коде → `config/defaults.env` → `.env` → переменные окружения (systemd `Environment` / `EnvironmentFile` перекрывают файлы).
+
 ## Развёртывание на Ubuntu VM
 
 - Репозиторий: `git clone` / `git pull`; зависимости: `deploy/install_vm.sh` (venv + `pip install -e .`).
-- Конфиг: `.env` в корне клона (или `EnvironmentFile` в systemd); шаблон переменных — `.env.example` в репозитории.
 - **systemd:** шаблоны [`deploy/habr-tech-radar.service`](../deploy/habr-tech-radar.service), [`deploy/habr-tech-radar.timer`](../deploy/habr-tech-radar.timer). Сервис `Type=oneshot`, **`ExecStart`** вызывает [`deploy/run_once.sh`](../deploy/run_once.sh) — оболочка с **`flock`** на файл по умолчанию **`/var/lib/habr-tech-radar/pipeline.lock`** (или `HTR_PIPELINE_LOCK_FILE`). Если блокировка занята, скрипт пишет в stderr `habr-tech-radar: skip: overlap lock_held path=...` и завершается с **кодом 0** (не ошибка деплоя). Таймер задаёт расписание (по умолчанию час в :17). Периодичность **не** внутри Python.
-- **Пути:** для systemd задайте `WorkingDirectory` на корень клона; для state вне cwd — абсолютный `HTR_STATE_FILE` и/или `HTR_PROJECT_ROOT`. Аналогично для **`HTR_LAST_RUN_PATH`** (снимок последнего прогона). Каталог под lock-файл должен существовать и принадлежать пользователю сервиса.
+- **Пути:** для systemd задайте `WorkingDirectory` на корень клона; для state вне cwd — абсолютный `HTR_STATE_FILE` и/или `HTR_PROJECT_ROOT`. Аналогично для **`HTR_LAST_RUN_PATH`**. Каталог под lock-файл должен существовать и принадлежать пользователю сервиса.
 - **Логи:** stderr + `PYTHONUNBUFFERED=1` в unit → `journalctl -u habr-tech-radar.service`. Ищите `delivery: telegram:` (start / retry / summary), `skip: overlap`, ошибки конфигурации.
 
 ## Как запускать
@@ -39,14 +44,15 @@ journalctl -u habr-tech-radar.service -g 'skip: overlap|delivery: telegram'
 
 ## Ближайшие задачи
 
-1. По желанию: `LLMEnrichment` с OpenAI (за интерфейсом, через env) — **этап отдельного scope**.
-2. По желанию: вынести часть правил в `config/` или оставить env как основной источник для личного радара.
+1. По желанию: подключить `LLMEnrichment` к внешнему провайдеру (отдельная настройка).
+2. По желанию: вынести часть правил в файлы под `config/` или оставить env как основной источник для личного радара.
 3. Мониторинг / алерты по повторяющимся сбоям доставки.
 
 ## С чего читать
 
 - `project-docs/PRD.md`, `project-docs/ARCHITECTURE.md`, `project-docs/TASKS.md`
 - `README.md` (секция Ubuntu VM)
+- `config/README.md`, `config/defaults.env`, `.env.example`
 - `deploy/habr-tech-radar.service`, `deploy/habr-tech-radar.timer`, `deploy/run_once.sh`, `deploy/install_vm.sh`
 - `src/habr_tech_radar/pipeline.py`, `src/habr_tech_radar/settings.py`
 - `src/habr_tech_radar/delivery/html_message.py`, `src/habr_tech_radar/delivery/http_telegram.py`

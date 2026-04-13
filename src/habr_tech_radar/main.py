@@ -74,7 +74,7 @@ def _persist_last_run_best_effort(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Habr Tech Radar (MVP scaffold)")
+    parser = argparse.ArgumentParser(description="Habr Tech Radar")
     parser.add_argument(
         "--demo",
         action="store_true",

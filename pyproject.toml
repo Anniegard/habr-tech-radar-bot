@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "habr-tech-radar"
 version = "0.1.0"
-description = "Personal tech radar: monitor Habr, filter, score, deliver to Telegram (MVP scaffold)."
+description = "Personal tech radar: monitor Habr, filter, score, deliver to Telegram."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { text = "MIT" }

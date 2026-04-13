@@ -31,7 +31,7 @@ class StubHabrIngestion:
         demo = Article.model_validate(
             {
                 "id": "demo-1",
-                "title": "Demo: Habr Tech Radar scaffold",
+                "title": "Demo: Habr Tech Radar",
                 "url": "https://habr.com/ru/articles/000000/",
                 "summary": "Synthetic article for local testing.",
                 "metadata": {"source": "stub"},

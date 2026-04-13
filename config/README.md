@@ -1,1 +1,8 @@
-Reserved for future YAML/JSON rules (keywords, blocklists, scoring weights). The stub pipeline does not read files from here yet.
+# Конфигурация
+
+- `**defaults.env**` — отслеживаемый в git набор **несекретных** значений по умолчанию (`HTR_`*). Его не нужно копировать: приложение подхватывает файл из корня репозитория при запуске из клона.
+- `**.env`** в корне клона — **локально** (в git не коммитится): секреты (токен Telegram, chat id) и любые переопределения поверх `defaults.env`.
+
+Порядок применения: встроенные дефолты в коде → `config/defaults.env` → `.env` → переменные окружения и `EnvironmentFile` в systemd (окружение сильнее файлов).
+
+Подробнее: корневой `README.md` и `.env.example`.
