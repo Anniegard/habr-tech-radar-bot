@@ -233,3 +233,247 @@ def test_scoring_selection_summary_lists_signals() -> None:
     score = scorer.score([fr])[0]
     assert score.explanation.selection_summary
     assert "beta" in score.explanation.selection_summary
+
+
+def test_keyword_score_is_capped_to_50() -> None:
+    settings = Settings(
+        include_keywords="k1,k2,k3,k4,k5,k6,k7,k8,k9,k10",
+        score_strong_keywords="s1,s2,s3,s4,s5,s6,s7,s8,s9,s10",
+        score_technical_keywords="t1,t2,t3,t4,t5,t6,t7,t8,t9,t10",
+        score_negative_keywords="",
+        score_weight_include_keyword=5,
+        score_weight_strong_keyword=12,
+        score_weight_technical_signal=10,
+        score_weight_include_hub=8,
+        score_weight_title_match_bonus=3,
+        score_weight_recency_max=10,
+        keyword_score_max=50,
+        llm_scoring_enabled=False,
+    )
+    scorer = HeuristicArticleScoring(settings, reference_time=datetime(2026, 4, 1, tzinfo=UTC))
+    fr = FilterResult(
+        article=_article(
+            title=" ".join(["k1", "s1", "t1"]),
+            summary=" ".join(
+                [
+                    "k1",
+                    "k2",
+                    "k3",
+                    "k4",
+                    "k5",
+                    "k6",
+                    "k7",
+                    "k8",
+                    "k9",
+                    "k10",
+                    "s1",
+                    "s2",
+                    "s3",
+                    "s4",
+                    "s5",
+                    "s6",
+                    "s7",
+                    "s8",
+                    "s9",
+                    "s10",
+                    "t1",
+                    "t2",
+                    "t3",
+                    "t4",
+                    "t5",
+                    "t6",
+                    "t7",
+                    "t8",
+                    "t9",
+                    "t10",
+                ]
+            ),
+            categories=["Python", "Backend", "DevOps"],
+        ),
+        passed=True,
+    )
+    score = scorer.score([fr])[0]
+    assert score.explanation.keyword_points == 50
+    assert score.points == 50
+
+
+def test_total_score_is_capped_to_100() -> None:
+    class HighLLMScorer(HeuristicArticleScoring):
+        def _score_llm(
+            self, *, fr: FilterResult, keyword_points: int
+        ) -> tuple[int, bool, str | None, bool]:
+            return 50, True, None, True
+
+    settings = Settings(
+        include_keywords="alpha,beta,gamma,delta,epsilon,zeta,eta,theta",
+        score_strong_keywords="strong1,strong2,strong3,strong4,strong5",
+        score_technical_keywords="tech1,tech2,tech3,tech4,tech5",
+        score_negative_keywords="",
+        score_weight_recency_max=10,
+        keyword_score_max=80,
+        llm_score_max=50,
+        llm_scoring_enabled=True,
+        openai_api_key="x",
+    )
+    scorer = HighLLMScorer(settings, reference_time=datetime(2026, 4, 1, tzinfo=UTC))
+    fr = FilterResult(
+        article=_article(
+            title="strong1 tech1 alpha",
+            summary=(
+                "alpha beta gamma delta epsilon zeta eta theta "
+                "strong1 strong2 strong3 strong4 strong5 tech1 tech2 tech3 tech4 tech5"
+            ),
+        ),
+        passed=True,
+    )
+    score = scorer.score([fr])[0]
+    assert score.explanation.keyword_points > 50
+    assert score.explanation.llm_points == 50
+    assert score.points == 100
+    assert score.explanation.total_points == 100
+
+
+def test_repeated_keyword_spam_does_not_grow_unbounded() -> None:
+    settings = Settings(
+        include_keywords="python",
+        score_strong_keywords="",
+        score_technical_keywords="",
+        score_negative_keywords="",
+        score_weight_include_keyword=5,
+        score_weight_title_match_bonus=0,
+        score_weight_recency_max=0,
+        keyword_score_max=50,
+        llm_scoring_enabled=False,
+    )
+    scorer = HeuristicArticleScoring(settings, reference_time=datetime(2026, 1, 1, tzinfo=UTC))
+    fr1 = FilterResult(article=_article(title="x", summary="python"), passed=True)
+    fr2 = FilterResult(article=_article(title="x", summary="python " * 500), passed=True)
+    s1 = scorer.score([fr1])[0].points
+    s2 = scorer.score([fr2])[0].points
+    assert s1 == s2
+
+
+def test_llm_not_called_when_keyword_below_threshold() -> None:
+    class TrackingScorer(HeuristicArticleScoring):
+        def __init__(self, settings: Settings) -> None:
+            super().__init__(settings, reference_time=datetime(2026, 1, 1, tzinfo=UTC))
+            self.called = False
+
+        def _score_llm(
+            self, *, fr: FilterResult, keyword_points: int
+        ) -> tuple[int, bool, str | None, bool]:
+            self.called = True
+            return super()._score_llm(fr=fr, keyword_points=keyword_points)
+
+    scorer = TrackingScorer(
+        Settings(
+            include_keywords="alpha",
+            score_strong_keywords="",
+            score_technical_keywords="",
+            score_negative_keywords="",
+            score_weight_include_keyword=5,
+            score_weight_title_match_bonus=0,
+            score_weight_recency_max=0,
+            llm_keyword_threshold=20,
+            openai_api_key="x",
+            llm_scoring_enabled=True,
+        )
+    )
+    fr = FilterResult(article=_article(title="z", summary="alpha"), passed=True)
+    score = scorer.score([fr])[0]
+    assert scorer.called
+    assert score.explanation.llm_points == 0
+    assert score.explanation.llm_applied is False
+    assert score.explanation.llm_fallback_reason == "keyword_threshold_not_met"
+
+
+def test_llm_called_when_keyword_meets_threshold() -> None:
+    class TrackingScorer(HeuristicArticleScoring):
+        def __init__(self, settings: Settings) -> None:
+            super().__init__(settings, reference_time=datetime(2026, 1, 1, tzinfo=UTC))
+            self.called = False
+
+        def _score_llm(
+            self, *, fr: FilterResult, keyword_points: int
+        ) -> tuple[int, bool, str | None, bool]:
+            self.called = True
+            return 7, True, None, True
+
+    scorer = TrackingScorer(
+        Settings(
+            include_keywords="alpha,beta,gamma,delta",
+            score_strong_keywords="",
+            score_technical_keywords="",
+            score_negative_keywords="",
+            score_weight_include_keyword=5,
+            score_weight_title_match_bonus=0,
+            score_weight_recency_max=0,
+            llm_keyword_threshold=20,
+            llm_scoring_enabled=True,
+            openai_api_key="x",
+        )
+    )
+    fr = FilterResult(article=_article(title="z", summary="alpha beta gamma delta"), passed=True)
+    score = scorer.score([fr])[0]
+    assert scorer.called
+    assert score.explanation.llm_applied is True
+    assert score.explanation.llm_points == 7
+
+
+def test_invalid_llm_json_falls_back_to_zero() -> None:
+    class InvalidJsonScorer(HeuristicArticleScoring):
+        def _score_llm(
+            self, *, fr: FilterResult, keyword_points: int
+        ) -> tuple[int, bool, str | None, bool]:
+            return 0, False, "llm_request_or_parse_failed", True
+
+    scorer = InvalidJsonScorer(
+        Settings(
+            include_keywords="alpha,beta,gamma,delta",
+            score_strong_keywords="",
+            score_technical_keywords="",
+            score_negative_keywords="",
+            score_weight_include_keyword=5,
+            score_weight_title_match_bonus=0,
+            score_weight_recency_max=0,
+            llm_keyword_threshold=20,
+            llm_scoring_enabled=True,
+            openai_api_key="x",
+        ),
+        reference_time=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    fr = FilterResult(article=_article(title="z", summary="alpha beta gamma delta"), passed=True)
+    score = scorer.score([fr])[0]
+    assert score.explanation.llm_points == 0
+    assert score.explanation.llm_applied is False
+    assert score.explanation.llm_fallback_reason == "llm_request_or_parse_failed"
+
+
+def test_article_fetch_failure_falls_back_gracefully() -> None:
+    class FetchFailedScorer(HeuristicArticleScoring):
+        def _score_llm(
+            self, *, fr: FilterResult, keyword_points: int
+        ) -> tuple[int, bool, str | None, bool]:
+            return 0, False, "article_fetch_failed", False
+
+    scorer = FetchFailedScorer(
+        Settings(
+            include_keywords="alpha,beta,gamma,delta",
+            score_strong_keywords="",
+            score_technical_keywords="",
+            score_negative_keywords="",
+            score_weight_include_keyword=5,
+            score_weight_title_match_bonus=0,
+            score_weight_recency_max=0,
+            llm_keyword_threshold=20,
+            llm_scoring_enabled=True,
+            openai_api_key="x",
+            llm_fetch_article_enabled=True,
+        ),
+        reference_time=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    fr = FilterResult(article=_article(title="z", summary="alpha beta gamma delta"), passed=True)
+    score = scorer.score([fr])[0]
+    assert score.explanation.llm_points == 0
+    assert score.explanation.llm_applied is False
+    assert score.explanation.llm_fallback_reason == "article_fetch_failed"

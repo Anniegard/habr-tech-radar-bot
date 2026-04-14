@@ -119,12 +119,17 @@ def _format_debug(item: RadarItem) -> str:
     href = html.escape(url_clean, quote=True)
     display_link = html.escape(url_clean, quote=False)
 
+    keyword_max = 50
+    llm_max = 50
+    total_max = 100
     lines: list[str] = [
         "<b>Habr Tech Radar</b> <i>(debug)</i>",
         "",
         f"<b>{title}</b>",
         "",
-        f"<b>Score:</b> {item.score.points}",
+        f"<b>Keyword score:</b> {expl.keyword_points}/{keyword_max}",
+        f"<b>LLM score:</b> {expl.llm_points}/{llm_max}",
+        f"<b>Total score:</b> {expl.total_points or item.score.points}/{total_max}",
     ]
 
     t = _fmt_utc(article.published_at)

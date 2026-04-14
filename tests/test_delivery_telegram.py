@@ -99,12 +99,18 @@ def test_format_debug_includes_breakdown_sections() -> None:
             matched_strong_keywords=["LLM"],
             breakdown={"strong_keywords": 12, "recency": 2},
             selection_summary="LLM",
+            keyword_points=25,
+            llm_points=18,
+            total_points=43,
         ),
     )
     html = format_radar_item_html(item, format_mode="debug")
     assert "Score breakdown" in html
     assert "Strong:" in html
     assert "(debug)" in html
+    assert "Keyword score:</b> 25/50" in html
+    assert "LLM score:</b> 18/50" in html
+    assert "Total score:</b> 43/100" in html
 
 
 def test_format_prod_strips_utm_from_href() -> None:

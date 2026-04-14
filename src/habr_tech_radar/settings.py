@@ -110,6 +110,60 @@ class Settings(BaseSettings):
         description="Health: max age (minutes) of finished_at_utc for a fresh last_run",
     )
     openai_api_key: str | None = Field(default=None)
+    llm_scoring_enabled: bool = Field(
+        default=True,
+        description="Enable hybrid scoring with optional LLM contribution",
+    )
+    llm_keyword_threshold: int = Field(
+        default=20,
+        ge=0,
+        le=50,
+        description="Run LLM scoring only when keyword score reaches this threshold",
+    )
+    llm_score_max: int = Field(
+        default=50,
+        ge=1,
+        le=100,
+        description="Maximum points contributed by LLM scoring",
+    )
+    keyword_score_max: int = Field(
+        default=50,
+        ge=1,
+        le=100,
+        description="Maximum points contributed by deterministic keyword scoring",
+    )
+    llm_model: str = Field(
+        default="gpt-4o-mini",
+        description="Model used for LLM score evaluation",
+    )
+    llm_request_timeout_seconds: float = Field(
+        default=20.0,
+        ge=0.1,
+        le=300.0,
+        description="Timeout for LLM API requests during scoring",
+    )
+    llm_max_article_chars: int = Field(
+        default=12000,
+        ge=500,
+        le=100000,
+        description="Max fetched article body chars passed to LLM scoring",
+    )
+    llm_max_summary_chars: int = Field(
+        default=1200,
+        ge=100,
+        le=10000,
+        description="Max summary chars passed to LLM scoring",
+    )
+    llm_fetch_article_timeout_seconds: float = Field(
+        default=8.0,
+        ge=0.1,
+        le=120.0,
+        description="Timeout when fetching full article HTML for LLM scoring",
+    )
+    llm_fetch_article_enabled: bool = Field(
+        default=True,
+        description="Fetch full article text before LLM scoring when possible",
+    )
 
     project_root: Path | None = Field(
         default=None,

@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import html
+import json
 import logging
+import re
 from datetime import UTC, datetime
+from typing import cast
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from habr_tech_radar.filtering.heuristic import article_categories, build_search_haystack
 from habr_tech_radar.models.article import ArticleScore, FilterResult, ScoreExplanation
@@ -12,6 +18,8 @@ from habr_tech_radar.settings import (
 )
 
 logger = logging.getLogger(__name__)
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_USER_AGENT = "habr-tech-radar/0.1.0 (+https://github.com/Anniegard/habr-tech-radar-bot)"
 
 
 def _recency_points(
@@ -129,6 +137,71 @@ def _selection_summary(
     return ", ".join(ordered) if ordered else None
 
 
+def _clamp_int(v: int, *, low: int, high: int) -> int:
+    return max(low, min(v, high))
+
+
+def _strip_html_to_text(raw: str) -> str:
+    txt = _HTML_TAG_RE.sub(" ", raw)
+    txt = html.unescape(txt)
+    return " ".join(txt.split())
+
+
+def _extract_article_text(html_body: str) -> str:
+    marker = '<div class="tm-article-body'
+    start = html_body.find(marker)
+    if start < 0:
+        start = html_body.find("<article")
+    if start < 0:
+        start = 0
+    sliced = html_body[start:]
+    return _strip_html_to_text(sliced)
+
+
+def _truncate(text: str, max_chars: int) -> str:
+    if len(text) <= max_chars:
+        return text
+    if max_chars <= 1:
+        return "…"
+    return text[: max_chars - 1].rstrip() + "…"
+
+
+def _fetch_article_text(url: str, timeout: float) -> str:
+    req = Request(url, headers={"User-Agent": _USER_AGENT})
+    with urlopen(req, timeout=timeout) as resp:  # noqa: S310
+        body = cast(bytes, resp.read()).decode("utf-8", errors="replace")
+    return _extract_article_text(body)
+
+
+def _parse_llm_scores(raw: str, *, llm_score_max: int) -> tuple[int, str | None]:
+    payload = json.loads(raw)
+    if not isinstance(payload, dict):
+        raise ValueError("LLM response must be JSON object")
+    required = (
+        "practical_value",
+        "novelty",
+        "depth",
+        "signal_to_noise",
+        "relevance_to_tech_radar",
+    )
+    values: list[int] = []
+    for key in required:
+        v = payload.get(key)
+        if not isinstance(v, int):
+            raise ValueError(f"{key} must be int")
+        if v < 0 or v > 10:
+            raise ValueError(f"{key} must be in 0..10")
+        values.append(v)
+    total = sum(values)
+    provided_total = payload.get("total")
+    if isinstance(provided_total, int) and provided_total != total:
+        logger.warning("scoring: llm provided total mismatch, using computed sum")
+    reason = payload.get("short_reason")
+    if reason is not None and not isinstance(reason, str):
+        raise ValueError("short_reason must be string")
+    return _clamp_int(total, low=0, high=llm_score_max), reason
+
+
 class HeuristicArticleScoring:
     """Integer score from tiered keywords, hubs, title bonus, recency, and penalties."""
 
@@ -215,7 +288,11 @@ class HeuristicArticleScoring:
             breakdown["penalties"] = pen_total
             raw += pen_total
 
-        points = max(0, raw)
+        keyword_points = _clamp_int(max(0, raw), low=0, high=self._settings.keyword_score_max)
+        llm_points, llm_applied, llm_reason, fetch_used = self._score_llm(
+            fr=fr, keyword_points=keyword_points
+        )
+        total_points = _clamp_int(keyword_points + llm_points, low=0, high=100)
 
         selection_summary = _selection_summary(matched_s, matched_t, matched_i, matched_hubs)
 
@@ -228,17 +305,123 @@ class HeuristicArticleScoring:
             matched_include_hubs=matched_hubs,
             breakdown=breakdown,
             selection_summary=selection_summary,
+            keyword_points=keyword_points,
+            llm_points=llm_points,
+            total_points=total_points,
+            llm_applied=llm_applied,
+            llm_fallback_reason=llm_reason,
+            content_fetch_used=fetch_used,
         )
 
         reasons = _build_reason_lines(
-            points=points,
+            points=total_points,
             raw=raw,
             selection_summary=selection_summary,
             matched_neg=matched_neg,
             matched_hubs=matched_hubs,
+            keyword_points=keyword_points,
+            llm_points=llm_points,
+            llm_reason=llm_reason,
         )
 
-        return ArticleScore(article=article, points=points, explanation=expl, reasons=reasons)
+        return ArticleScore(
+            article=article,
+            points=total_points,
+            explanation=expl,
+            reasons=reasons,
+        )
+
+    def _score_llm(
+        self, *, fr: FilterResult, keyword_points: int
+    ) -> tuple[int, bool, str | None, bool]:
+        settings = self._settings
+        if keyword_points < settings.llm_keyword_threshold:
+            return 0, False, "keyword_threshold_not_met", False
+        if not settings.llm_scoring_enabled:
+            return 0, False, "llm_scoring_disabled", False
+        if not settings.openai_api_key:
+            return 0, False, "openai_api_key_missing", False
+
+        article = fr.article
+        content_fetch_used = False
+        article_text: str | None = None
+        if settings.llm_fetch_article_enabled:
+            try:
+                article_text = _fetch_article_text(
+                    str(article.url), timeout=settings.llm_fetch_article_timeout_seconds
+                )
+                article_text = _truncate(article_text, settings.llm_max_article_chars)
+                content_fetch_used = True
+            except (HTTPError, URLError, OSError, UnicodeDecodeError, ValueError) as e:
+                logger.warning("scoring: failed to fetch article text id=%s err=%s", article.id, e)
+                return 0, False, "article_fetch_failed", False
+        if not article_text:
+            return 0, False, "article_text_missing", content_fetch_used
+
+        summary = _truncate(article.summary or "", settings.llm_max_summary_chars)
+        prompt = (
+            "Evaluate this Habr article for a personal tech radar.\n"
+            "Return strict JSON only with integer fields 0..10:\n"
+            "practical_value, novelty, depth, signal_to_noise, "
+            "relevance_to_tech_radar, total, short_reason.\n"
+            "No markdown, no prose around JSON.\n\n"
+            f"Title: {article.title}\n"
+            f"Summary: {summary}\n"
+            f"Categories: {', '.join(article_categories(article))}\n"
+            f"Author: {article.metadata.get('author', '')}\n"
+            f"Body:\n{article_text}"
+        )
+        request_body = json.dumps(
+            {
+                "model": settings.llm_model,
+                "temperature": 0,
+                "response_format": {"type": "json_object"},
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a strict scoring engine for a personal tech radar. "
+                            "Always return JSON only."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+            }
+        ).encode("utf-8")
+        req = Request(
+            "https://api.openai.com/v1/chat/completions",
+            data=request_body,
+            headers={
+                "Authorization": f"Bearer {settings.openai_api_key}",
+                "Content-Type": "application/json",
+            },
+        )
+        try:
+            with urlopen(req, timeout=settings.llm_request_timeout_seconds) as resp:  # noqa: S310
+                body = cast(bytes, resp.read()).decode("utf-8", errors="replace")
+            outer = json.loads(body)
+            if not isinstance(outer, dict):
+                raise ValueError("invalid LLM completion payload")
+            choices = outer.get("choices")
+            if not isinstance(choices, list) or not choices:
+                raise ValueError("missing choices")
+            choice0 = choices[0]
+            if not isinstance(choice0, dict):
+                raise ValueError("invalid first choice")
+            msg = choice0.get("message")
+            if not isinstance(msg, dict):
+                raise ValueError("missing message")
+            content = msg.get("content")
+            if not isinstance(content, str):
+                raise ValueError("missing content")
+            llm_points, _short_reason = _parse_llm_scores(
+                content,
+                llm_score_max=settings.llm_score_max,
+            )
+            return llm_points, True, None, content_fetch_used
+        except (HTTPError, URLError, OSError, ValueError, json.JSONDecodeError) as e:
+            logger.warning("scoring: llm fallback id=%s err=%s", article.id, e)
+            return 0, False, "llm_request_or_parse_failed", content_fetch_used
 
 
 def _build_reason_lines(
@@ -248,6 +431,9 @@ def _build_reason_lines(
     selection_summary: str | None,
     matched_neg: list[str],
     matched_hubs: list[str],
+    keyword_points: int,
+    llm_points: int,
+    llm_reason: str | None,
 ) -> list[str]:
     lines: list[str] = []
     if selection_summary:
@@ -258,8 +444,12 @@ def _build_reason_lines(
         lines.append("Signals: (recency / penalties only)")
     if matched_neg:
         lines.append(f"Noise matches: {', '.join(matched_neg[:10])}")
-    if raw != points:
-        lines.append(f"Capped score: {points} (raw was {raw})")
+    if raw != keyword_points:
+        lines.append(f"Keyword score: {keyword_points} (raw was {raw})")
     else:
-        lines.append(f"Score: {points}")
+        lines.append(f"Keyword score: {keyword_points}")
+    lines.append(f"LLM score: {llm_points}")
+    lines.append(f"Total score: {points}")
+    if llm_reason:
+        lines.append(f"LLM fallback: {llm_reason}")
     return lines
