@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from habr_tech_radar.models.article import Article
+from habr_tech_radar.models.article import Article, ScoreExplanation
 
 
 def test_article_valid() -> None:
@@ -30,3 +30,10 @@ def test_article_invalid_url() -> None:
                 "url": "not-a-url",
             }
         )
+
+
+def test_score_explanation_clamps_keyword_llm_and_total() -> None:
+    expl = ScoreExplanation(keyword_points=60, llm_points=60, total_points=999)
+    assert expl.keyword_points == 50
+    assert expl.llm_points == 50
+    assert expl.total_points == 100

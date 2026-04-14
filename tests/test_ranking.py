@@ -80,7 +80,7 @@ def test_ranking_uses_article_score_points_hybrid_total() -> None:
                 }
             ),
             points=60,
-            explanation=ScoreExplanation(keyword_points=60, llm_points=0, total_points=60),
+            explanation=ScoreExplanation(keyword_points=40, llm_points=20, total_points=60),
         ),
         ArticleScore(
             article=Article.model_validate(

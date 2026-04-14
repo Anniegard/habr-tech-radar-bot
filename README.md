@@ -19,12 +19,13 @@ python -m pre_commit install   # опционально
 
 Для демо без сети: `python -m habr_tech_radar --demo`.
 
-Для обычного прогона с RSS несекретные параметры уже заданы в **[config/defaults.env](config/defaults.env)**. Создайте **`.env`** только если нужны секреты или свои значения:
+Для обычного прогона с RSS несекретные параметры уже заданы в **[config/defaults.env](config/defaults.env)**. Скопируйте шаблон секретов и заполните его:
 
 ```bash
 cp .env.example .env
 chmod 600 .env
-# Минимум для реальной отправки в Telegram: HTR_TELEGRAM_BOT_TOKEN, HTR_TELEGRAM_CHAT_ID, HTR_DRY_RUN=false
+# Обязательно для реальной отправки в Telegram: HTR_TELEGRAM_BOT_TOKEN, HTR_TELEGRAM_CHAT_ID, HTR_DRY_RUN=false
+# Опционально для гибридного LLM-скоринга: HTR_OPENAI_API_KEY (без ключа остаётся keyword-only)
 ```
 
 Порядок загрузки: **дефолты в коде** → **config/defaults.env** → **`.env`** → **переменные окружения** (в т.ч. из systemd; окружение сильнее файлов).
@@ -166,7 +167,7 @@ python -m habr_tech_radar
 
 ## Переменные окружения
 
-Префикс **`HTR_`**. Несекретные значения по умолчанию — в **[config/defaults.env](config/defaults.env)**. Шаблон для `.env` — **[.env.example](.env.example)**.
+Префикс **`HTR_`**. Несекретные значения по умолчанию — в **[config/defaults.env](config/defaults.env)**. **[.env.example](.env.example)** — только секреты и опционально **`HTR_PROJECT_ROOT`**; остальное переопределяйте в `.env` или окружении по необходимости.
 
 Кратко:
 

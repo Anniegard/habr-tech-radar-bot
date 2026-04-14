@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 @runtime_checkable
 class ArticleScoring(Protocol):
-    """Assigns relevance scores. TODO: heuristics + optional LLM signals."""
+    """Assigns relevance scores (default: hybrid heuristic plus optional LLM)."""
 
     def score(self, filtered: list[FilterResult]) -> list[ArticleScore]: ...
 

@@ -3,8 +3,9 @@
 ## [Unreleased]
 
 - Публичная чистка: убраны служебные IDE-файлы и лишний контекст из README и project-docs; верх README на русском.
-- Конфигурация: отслеживаемый `config/defaults.env` (несекретные дефолты), загрузка слоями; упрощён `.env.example`.
+- Конфигурация: отслеживаемый `config/defaults.env` (несекретные дефолты, в т.ч. параметры гибридного скоринга без секретов), загрузка слоями; `.env.example` сфокусирован на секретах и опциональном `HTR_PROJECT_ROOT`.
 - Скоринг: уровни strong / technical / include, штрафы по negative keywords, сниженный вклад свежести; `ScoreExplanation` расширен; Telegram: режимы `HTR_TELEGRAM_FORMAT_MODE=prod|debug`, очистка tracking-параметров в ссылке.
+- Merge readiness (ветка hybrid scoring): синхронизированы `project-docs` с гибридным скорингом (отдельно: скоринг LLM в `HeuristicArticleScoring` vs no-op enrichment после топ-N); контракт **50+50≤100** зафиксирован в модели и тестах; убраны устаревшие TODO в docstring протоколов.
 
 ### 2026-04-12
 
