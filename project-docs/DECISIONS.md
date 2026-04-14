@@ -37,3 +37,13 @@
 **Decision:** venv + Makefile only; no CI in initial commit.
 
 **Consequences:** Contributors run checks locally (`make test`, `pre-commit`).
+
+---
+
+## ADR-005: Hybrid scoring contract (50 / 50 / 100) and LLM gating
+
+**Context:** Stage-1 personal radar needs a clear, debuggable score with an optional semantic signal without mandatory API cost.
+
+**Decision:** Keyword/heuristic contribution is capped at **50**; LLM contribution is capped at **50**; **`ArticleScore.points`** is the sum, capped at **100**. Call OpenAI for scoring only when **`HTR_LLM_SCORING_ENABLED`**, **`HTR_OPENAI_API_KEY`** is set, and **keyword score ≥ `HTR_LLM_KEYWORD_THRESHOLD`** (default **20**). If full-article fetch is disabled or fails, build LLM input from **fallback context** (title, summary, categories, etc.). **`ScoreExplanation`** normalizes stored breakdown fields to the same bounds when constructed from external data.
+
+**Consequences:** Predictable ranking; keyword-only mode remains first-class; no LLM spend on low-signal items.

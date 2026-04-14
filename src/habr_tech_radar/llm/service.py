@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 @runtime_checkable
 class LLMEnrichment(Protocol):
-    """Optional enrichment (summary, tags). TODO: OpenAI or other provider."""
+    """Optional post-rank enrichment (summary, tags); default wiring is no-op."""
 
     def enrich(self, scores: list[ArticleScore]) -> list[RadarItem]: ...
 

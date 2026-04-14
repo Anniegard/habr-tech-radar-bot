@@ -8,14 +8,15 @@ Staying aware of relevant Habr articles without manual scrolling. The product su
 
 - Monitor new Habr articles (RSS).
 - Filter to interesting items (configurable rules).
-- Score relevance (heuristics).
+- Score relevance: **stage-1 hybrid** — deterministic keyword/heuristic signals (**0..50**) plus **optional** OpenAI-assisted scoring (**0..50**) when enabled and above a keyword threshold; final rank uses **`ArticleScore.points` (0..100)**. Without a key or below threshold, scoring stays **keyword-only**.
 - Deliver selected items to Telegram (Bot API).
-- LLM enrichment is modeled in the pipeline but not connected to an external provider.
+- **Post-rank LLM enrichment** (`LLMEnrichment`) is wired as a **no-op** by default; connecting a provider for summaries/tags is optional future work (not part of stage-1 scoring).
 
 ## Out of scope here
 
 - Full hosted production platform as a managed service (this repo targets self-hosted runs).
 - Docker, CI/CD, Kubernetes as required infrastructure for the app itself.
+- Stage-2 features: private comment generation, auto-commenting on Habr, or other social automation beyond RSS → filter → score → Telegram notify.
 
 ## Week-1 success criteria
 

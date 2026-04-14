@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 @runtime_checkable
 class HabrIngestion(Protocol):
-    """Fetches or parses new articles from Habr. Real implementation: RSS/API. TODO."""
+    """Supplies new articles for the pipeline (RSS in normal mode; stub for demo/tests)."""
 
     def fetch_new(self) -> list[Article]:
         """Return newly seen articles since last run (implementation-defined)."""
@@ -27,7 +27,7 @@ class StubHabrIngestion:
         if not self._demo_mode:
             logger.info("ingestion: stub returned no articles (set HTR_DEMO_MODE=1 for demo)")
             return []
-        # TODO: replace with RSS/API ingestion; demo data only for local pipeline smoke tests
+        # Synthetic article for --demo / HTR_DEMO_MODE (RSS path uses RssHabrIngestion).
         demo = Article.model_validate(
             {
                 "id": "demo-1",

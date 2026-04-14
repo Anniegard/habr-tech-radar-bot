@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 @runtime_checkable
 class ArticleFilter(Protocol):
-    """Filters articles by keywords, hubs, blocklists, etc. TODO: real rules."""
+    """Filters articles by keywords, hubs, and blocklists (see HeuristicArticleFilter)."""
 
     def filter(self, articles: list[Article]) -> list[FilterResult]: ...
 
