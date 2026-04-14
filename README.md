@@ -4,7 +4,7 @@
 
 **Кому полезно:** тем, кто не хочет вручную пролистывать всю ленту, но хочет получать отобранные статьи по своим ключевым словам и хабам.
 
-**Что внутри:** Python 3.12, загрузка RSS, дедупликация по JSON, фильтр и скоринг через переменные окружения, отправка в Telegram Bot API (`sendMessage`, HTML). Шаг LLM в пайплайне есть как заглушка (без внешнего API).
+**Что внутри:** Python 3.12, загрузка RSS, дедупликация по JSON, фильтр и гибридный скоринг (keyword + опциональный LLM) через переменные окружения, отправка в Telegram Bot API (`sendMessage`, HTML). Обогащение после ранжирования (`llm.enrich`) остаётся заглушкой.
 
 ## Быстрый старт (локально)
 
@@ -19,7 +19,7 @@ python -m pre_commit install   # опционально
 
 Для демо без сети: `python -m habr_tech_radar --demo`.
 
-Для обычного прогона с RSS несекретные параметры уже заданы в `**[config/defaults.env](config/defaults.env)**`. Создайте `**.env**` только если нужны секреты или свои значения:
+Для обычного прогона с RSS несекретные параметры уже заданы в **[config/defaults.env](config/defaults.env)**. Создайте **`.env`** только если нужны секреты или свои значения:
 
 ```bash
 cp .env.example .env
@@ -27,7 +27,7 @@ chmod 600 .env
 # Минимум для реальной отправки в Telegram: HTR_TELEGRAM_BOT_TOKEN, HTR_TELEGRAM_CHAT_ID, HTR_DRY_RUN=false
 ```
 
-Порядок загрузки: **дефолты в коде** → `**config/defaults.env`** → `**.env**` → **переменные окружения** (в т.ч. из systemd; окружение сильнее файлов).
+Порядок загрузки: **дефолты в коде** → **config/defaults.env** → **`.env`** → **переменные окружения** (в т.ч. из systemd; окружение сильнее файлов).
 
 ## Структура репозитория
 
@@ -87,7 +87,7 @@ chmod +x deploy/install_vm.sh
 
 ### Конфигурация
 
-В репозитории уже есть `**config/defaults.env**` (несекретные значения). Создайте в корне клона `**.env**` для токена Telegram, chat id и при необходимости путей на сервере:
+В репозитории уже есть **config/defaults.env** (несекретные значения). Создайте в корне клона **`.env`** для токена Telegram, chat id и при необходимости путей на сервере:
 
 ```bash
 cp .env.example .env
@@ -105,7 +105,7 @@ sudo chown -R htrbot:htrbot /var/lib/htrbot
 
 ### systemd: service + timer
 
-1. Отредактируйте пути в `[deploy/habr-tech-radar.service](deploy/habr-tech-radar.service)` и `[deploy/habr-tech-radar.timer](deploy/habr-tech-radar.timer)`: `User`, `Group`, `WorkingDirectory`, `EnvironmentFile`. `ExecStart` → `[deploy/run_once.sh](deploy/run_once.sh)` (`**flock**`, без параллельных запусков).
+1. Отредактируйте пути в `[deploy/habr-tech-radar.service](deploy/habr-tech-radar.service)` и `[deploy/habr-tech-radar.timer](deploy/habr-tech-radar.timer)`: `User`, `Group`, `WorkingDirectory`, `EnvironmentFile`. `ExecStart` → `[deploy/run_once.sh](deploy/run_once.sh)` (**flock**, без параллельных запусков).
 2. Каталог для lock-файла (по умолчанию `/var/lib/habr-tech-radar/`) — см. комментарии в unit и вывод `install_vm.sh --install-systemd`.
 3. Установка юнитов:
 
@@ -119,13 +119,13 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now habr-tech-radar.timer
 ```
 
-**Перекрытие запусков:** если предыдущий прогон держит блокировку, новый пишет в stderr `habr-tech-radar: skip: overlap lock_held path=...`, код выхода **0**. Lock: переменная `**HTR_PIPELINE_LOCK_FILE`** в unit.
+**Перекрытие запусков:** если предыдущий прогон держит блокировку, новый пишет в stderr `habr-tech-radar: skip: overlap lock_held path=...`, код выхода **0**. Lock: переменная **`HTR_PIPELINE_LOCK_FILE`** в unit.
 
 Таймер по умолчанию: **каждый час в :17** (`OnCalendar` в timer).
 
 **Повторы Telegram:** временные сбои сети, HTTP **5xx**, **429** — ограниченные повторы `sendMessage` (см. `HTR_TELEGRAM_SEND_MAX_ATTEMPTS`, `HTR_TELEGRAM_RETRY_BASE_SECONDS` в `[config/defaults.env](config/defaults.env)`). Общий бюджет фазы доставки: `HTR_TELEGRAM_MAX_DELIVERY_SECONDS`. Логи: `delivery: telegram: start|retry|summary`.
 
-**Снимок прогона:** атомарно JSON в `HTR_LAST_RUN_PATH`. Проверка: `python -m habr_tech_radar --health-summary` (код **0** только при свежем успешном прогоне по `HTR_HEALTH_MAX_AGE_MINUTES`). В логах на каждой строке есть `**run_id=`**.
+**Снимок прогона:** атомарно JSON в `HTR_LAST_RUN_PATH`. Проверка: `python -m habr_tech_radar --health-summary` (код **0** только при свежем успешном прогоне по `HTR_HEALTH_MAX_AGE_MINUTES`). В логах на каждой строке есть `run_id=`.
 
 ### Управление и логи
 
@@ -146,7 +146,7 @@ python -m habr_tech_radar
 
 Коды выхода основного прогона: **0** — успех; **2** — нет токена/chat id при `HTR_DRY_RUN=false`; **1** — частичная доставка (`TelegramDeliveryError`). Пропуск из‑за flock — **0**, строка `skip: overlap`.
 
-`**--health-summary`:** **0** / **1** / **2** — см. выше.
+`--health-summary`: **0** / **1** / **2** — см. выше.
 
 ## Команды (Make)
 
@@ -166,7 +166,7 @@ python -m habr_tech_radar
 
 ## Переменные окружения
 
-Префикс `**HTR_`**. Несекретные значения по умолчанию — в `**[config/defaults.env](config/defaults.env)**`. Шаблон для `.env` — `**[.env.example](.env.example)**`.
+Префикс **`HTR_`**. Несекретные значения по умолчанию — в **[config/defaults.env](config/defaults.env)**. Шаблон для `.env` — **[.env.example](.env.example)**.
 
 Кратко:
 
@@ -176,7 +176,7 @@ python -m habr_tech_radar
 - `HTR_STATE_FILE`, `HTR_PROJECT_ROOT`, `HTR_LAST_RUN_PATH` — пути к state и снимку прогона.
 - `HTR_TELEGRAM_*` — токен, chat id, формат сообщений, retry, бюджет доставки.
 - `HTR_PIPELINE_LOCK_FILE` — для `[deploy/run_once.sh](deploy/run_once.sh)`.
-- `HTR_LLM_SCORING_ENABLED`, `HTR_LLM_KEYWORD_THRESHOLD`, `HTR_KEYWORD_SCORE_MAX`, `HTR_LLM_SCORE_MAX` — гибридный скоринг stage-1 (keyword + optional LLM).
+- `HTR_LLM_SCORING_ENABLED`, `HTR_LLM_KEYWORD_THRESHOLD` — гибридный скоринг stage-1: keyword score **0..50**, LLM score **0..50**, итог **0..100** (максимумы не настраиваются).
 - `HTR_LLM_FETCH_ARTICLE_ENABLED`, `HTR_LLM_FETCH_ARTICLE_TIMEOUT_SECONDS`, `HTR_LLM_MAX_ARTICLE_CHARS`, `HTR_LLM_MAX_SUMMARY_CHARS`, `HTR_LLM_REQUEST_TIMEOUT_SECONDS`, `HTR_LLM_MODEL` — параметры LLM-оценки и подготовки контента.
 
 Длинные лексиконы для скоринга (`HTR_SCORE_*_KEYWORDS`) по умолчанию заданы в коде; при необходимости переопределите в `.env` или окружении.
@@ -188,13 +188,14 @@ python -m habr_tech_radar
 - **Исключения (`HTR_EXCLUDE_*`)** — статья отбрасывается до скоринга.
 - **Включения** — если оба списка include пусты, режим пермиссивный (только exclude). Иначе нужно совпадение по keyword **или** hub (OR).
 - **Скоринг (stage-1 гибрид):** keyword score `0..50` (детерминированные сигналы: strong / technical / include, хабы, заголовок, свежесть, штрафы) + optional LLM score `0..50`; итоговый `ArticleScore.points` = `0..100`.
-- LLM-вклад вычисляется **только** при `keyword_score >= HTR_LLM_KEYWORD_THRESHOLD` (по умолчанию `20`); иначе `llm_score=0` и внешний API не вызывается.
+- LLM-вклад вычисляется **только** при `HTR_LLM_SCORING_ENABLED=true`, наличии `HTR_OPENAI_API_KEY` и `keyword_score >= HTR_LLM_KEYWORD_THRESHOLD` (по умолчанию `20`); иначе `llm_score=0` и внешний API не вызывается (это нормальный keyword-only режим).
+- Если полный текст статьи не загружается или `HTR_LLM_FETCH_ARTICLE_ENABLED=false`, LLM оценивает по контексту из заголовка, summary, категорий и автора.
 
 Подробнее модель данных и поток — `[project-docs/ARCHITECTURE.md](project-docs/ARCHITECTURE.md)`.
 
 ### Сообщения в Telegram (HTML)
 
-Режимы `HTR_TELEGRAM_FORMAT_MODE`: `**prod`** (компактно) или `**debug**` (полный разбор). Форматирование: `[format_radar_item_html](src/habr_tech_radar/delivery/html_message.py)`.
+Режимы `HTR_TELEGRAM_FORMAT_MODE`: **`prod`** (компактно) или **`debug`** (полный разбор). Форматирование: [`format_radar_item_html`](src/habr_tech_radar/delivery/html_message.py).
 
 ### Реальная отправка
 

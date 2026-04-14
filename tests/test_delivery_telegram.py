@@ -113,6 +113,34 @@ def test_format_debug_includes_breakdown_sections() -> None:
     assert "Total score:</b> 43/100" in html
 
 
+def test_format_debug_shows_llm_skip_reason() -> None:
+    item = _radar_with(
+        expl=ScoreExplanation(
+            keyword_points=15,
+            llm_points=0,
+            total_points=15,
+            llm_applied=False,
+            llm_fallback_reason="llm_disabled",
+        ),
+    )
+    html = format_radar_item_html(item, format_mode="debug")
+    assert "LLM mode:</b> skipped (llm_disabled)" in html
+
+
+def test_format_debug_shows_fallback_context_when_fetch_not_used() -> None:
+    item = _radar_with(
+        expl=ScoreExplanation(
+            keyword_points=20,
+            llm_points=10,
+            total_points=30,
+            llm_applied=True,
+            content_fetch_used=False,
+        ),
+    )
+    html = format_radar_item_html(item, format_mode="debug")
+    assert "LLM context:</b> title/summary/categories" in html
+
+
 def test_format_prod_strips_utm_from_href() -> None:
     article = Article.model_validate(
         {

@@ -20,6 +20,9 @@ from habr_tech_radar.settings import (
 logger = logging.getLogger(__name__)
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _USER_AGENT = "habr-tech-radar/0.1.0 (+https://github.com/Anniegard/habr-tech-radar-bot)"
+_KEYWORD_SCORE_MAX = 50
+_LLM_SCORE_MAX = 50
+_TOTAL_SCORE_MAX = 100
 
 
 def _recency_points(
@@ -173,7 +176,7 @@ def _fetch_article_text(url: str, timeout: float) -> str:
     return _extract_article_text(body)
 
 
-def _parse_llm_scores(raw: str, *, llm_score_max: int) -> tuple[int, str | None]:
+def _parse_llm_scores(raw: str) -> tuple[int, str | None]:
     payload = json.loads(raw)
     if not isinstance(payload, dict):
         raise ValueError("LLM response must be JSON object")
@@ -199,7 +202,24 @@ def _parse_llm_scores(raw: str, *, llm_score_max: int) -> tuple[int, str | None]
     reason = payload.get("short_reason")
     if reason is not None and not isinstance(reason, str):
         raise ValueError("short_reason must be string")
-    return _clamp_int(total, low=0, high=llm_score_max), reason
+    return _clamp_int(total, low=0, high=_LLM_SCORE_MAX), reason
+
+
+def _build_llm_context(*, fr: FilterResult, body_text: str | None, max_summary_chars: int) -> str:
+    article = fr.article
+    summary = _truncate(article.summary or "", max_summary_chars)
+    categories = ", ".join(article_categories(article))
+    author = str(article.metadata.get("author", "")).strip()
+    parts: list[str] = [
+        f"Title: {article.title}",
+        f"Summary: {summary}",
+        f"Categories: {categories}",
+        f"Author: {author}",
+    ]
+    if body_text:
+        parts.append(f"Body:\n{body_text}")
+    context = "\n".join(parts).strip()
+    return context
 
 
 class HeuristicArticleScoring:
@@ -288,11 +308,11 @@ class HeuristicArticleScoring:
             breakdown["penalties"] = pen_total
             raw += pen_total
 
-        keyword_points = _clamp_int(max(0, raw), low=0, high=self._settings.keyword_score_max)
+        keyword_points = _clamp_int(max(0, raw), low=0, high=_KEYWORD_SCORE_MAX)
         llm_points, llm_applied, llm_reason, fetch_used = self._score_llm(
             fr=fr, keyword_points=keyword_points
         )
-        total_points = _clamp_int(keyword_points + llm_points, low=0, high=100)
+        total_points = _clamp_int(keyword_points + llm_points, low=0, high=_TOTAL_SCORE_MAX)
 
         selection_summary = _selection_summary(matched_s, matched_t, matched_i, matched_hubs)
 
@@ -336,11 +356,11 @@ class HeuristicArticleScoring:
     ) -> tuple[int, bool, str | None, bool]:
         settings = self._settings
         if keyword_points < settings.llm_keyword_threshold:
-            return 0, False, "keyword_threshold_not_met", False
+            return 0, False, "below_keyword_threshold", False
         if not settings.llm_scoring_enabled:
-            return 0, False, "llm_scoring_disabled", False
+            return 0, False, "llm_disabled", False
         if not settings.openai_api_key:
-            return 0, False, "openai_api_key_missing", False
+            return 0, False, "missing_api_key", False
 
         article = fr.article
         content_fetch_used = False
@@ -354,22 +374,21 @@ class HeuristicArticleScoring:
                 content_fetch_used = True
             except (HTTPError, URLError, OSError, UnicodeDecodeError, ValueError) as e:
                 logger.warning("scoring: failed to fetch article text id=%s err=%s", article.id, e)
-                return 0, False, "article_fetch_failed", False
-        if not article_text:
-            return 0, False, "article_text_missing", content_fetch_used
+        llm_context = _build_llm_context(
+            fr=fr,
+            body_text=article_text,
+            max_summary_chars=settings.llm_max_summary_chars,
+        )
+        if not llm_context:
+            return 0, False, "fallback_context_unavailable", content_fetch_used
 
-        summary = _truncate(article.summary or "", settings.llm_max_summary_chars)
         prompt = (
             "Evaluate this Habr article for a personal tech radar.\n"
             "Return strict JSON only with integer fields 0..10:\n"
             "practical_value, novelty, depth, signal_to_noise, "
             "relevance_to_tech_radar, total, short_reason.\n"
             "No markdown, no prose around JSON.\n\n"
-            f"Title: {article.title}\n"
-            f"Summary: {summary}\n"
-            f"Categories: {', '.join(article_categories(article))}\n"
-            f"Author: {article.metadata.get('author', '')}\n"
-            f"Body:\n{article_text}"
+            f"{llm_context}"
         )
         request_body = json.dumps(
             {
@@ -414,10 +433,7 @@ class HeuristicArticleScoring:
             content = msg.get("content")
             if not isinstance(content, str):
                 raise ValueError("missing content")
-            llm_points, _short_reason = _parse_llm_scores(
-                content,
-                llm_score_max=settings.llm_score_max,
-            )
+            llm_points, _short_reason = _parse_llm_scores(content)
             return llm_points, True, None, content_fetch_used
         except (HTTPError, URLError, OSError, ValueError, json.JSONDecodeError) as e:
             logger.warning("scoring: llm fallback id=%s err=%s", article.id, e)

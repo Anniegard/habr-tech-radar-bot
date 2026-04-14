@@ -64,3 +64,36 @@ def test_tie_break_same_points_and_time_uses_id() -> None:
 def test_select_top_invalid_limit() -> None:
     with pytest.raises(ValueError, match="limit"):
         select_top_scored([], 0)
+
+
+def test_ranking_uses_article_score_points_hybrid_total() -> None:
+    """Selection must sort by ArticleScore.points (keyword + llm), not subfields."""
+    t = datetime(2026, 1, 1, tzinfo=UTC)
+    scores = [
+        ArticleScore(
+            article=Article.model_validate(
+                {
+                    "id": "low_total",
+                    "title": "t",
+                    "url": "https://habr.com/ru/post/1/",
+                    "published_at": t,
+                }
+            ),
+            points=60,
+            explanation=ScoreExplanation(keyword_points=60, llm_points=0, total_points=60),
+        ),
+        ArticleScore(
+            article=Article.model_validate(
+                {
+                    "id": "high_total",
+                    "title": "t",
+                    "url": "https://habr.com/ru/post/2/",
+                    "published_at": t,
+                }
+            ),
+            points=75,
+            explanation=ScoreExplanation(keyword_points=50, llm_points=25, total_points=75),
+        ),
+    ]
+    top = select_top_scored(scores, 2)
+    assert [s.article.id for s in top] == ["high_total", "low_total"]

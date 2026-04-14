@@ -90,5 +90,3 @@ def test_hybrid_scoring_settings_defaults() -> None:
     s = Settings()
     assert s.llm_scoring_enabled is True
     assert s.llm_keyword_threshold == 20
-    assert s.keyword_score_max == 50
-    assert s.llm_score_max == 50

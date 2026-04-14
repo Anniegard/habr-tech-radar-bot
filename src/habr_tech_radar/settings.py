@@ -120,18 +120,6 @@ class Settings(BaseSettings):
         le=50,
         description="Run LLM scoring only when keyword score reaches this threshold",
     )
-    llm_score_max: int = Field(
-        default=50,
-        ge=1,
-        le=100,
-        description="Maximum points contributed by LLM scoring",
-    )
-    keyword_score_max: int = Field(
-        default=50,
-        ge=1,
-        le=100,
-        description="Maximum points contributed by deterministic keyword scoring",
-    )
     llm_model: str = Field(
         default="gpt-4o-mini",
         description="Model used for LLM score evaluation",

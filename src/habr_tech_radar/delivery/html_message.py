@@ -165,6 +165,20 @@ def _format_debug(item: RadarItem) -> str:
         lines.extend(["", "<b>Score breakdown</b>", ""])
         for key, pts in sorted(expl.breakdown.items()):
             lines.append(_fmt_breakdown_value(key, pts))
+    if not expl.llm_applied and expl.llm_fallback_reason:
+        lines.extend(
+            [
+                "",
+                f"<b>LLM mode:</b> skipped ({html.escape(expl.llm_fallback_reason, quote=False)})",
+            ]
+        )
+    elif expl.llm_applied and expl.content_fetch_used is False:
+        lines.extend(
+            [
+                "",
+                "<b>LLM context:</b> title/summary/categories (full article fetch not used)",
+            ]
+        )
 
     if item.score.reasons:
         lines.extend(["", "<b>Notes</b>", ""])

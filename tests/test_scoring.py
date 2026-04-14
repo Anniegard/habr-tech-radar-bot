@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
+from urllib.request import Request
 
+import habr_tech_radar.scoring.heuristic as scoring_mod
 from habr_tech_radar.models.article import Article, FilterResult
 from habr_tech_radar.scoring.heuristic import HeuristicArticleScoring
 from habr_tech_radar.settings import Settings
@@ -247,7 +250,6 @@ def test_keyword_score_is_capped_to_50() -> None:
         score_weight_include_hub=8,
         score_weight_title_match_bonus=3,
         score_weight_recency_max=10,
-        keyword_score_max=50,
         llm_scoring_enabled=False,
     )
     scorer = HeuristicArticleScoring(settings, reference_time=datetime(2026, 4, 1, tzinfo=UTC))
@@ -297,37 +299,34 @@ def test_keyword_score_is_capped_to_50() -> None:
     assert score.points == 50
 
 
-def test_total_score_is_capped_to_100() -> None:
-    class HighLLMScorer(HeuristicArticleScoring):
-        def _score_llm(
-            self, *, fr: FilterResult, keyword_points: int
-        ) -> tuple[int, bool, str | None, bool]:
-            return 50, True, None, True
+def test_total_score_is_capped_to_100(monkeypatch: Any) -> None:
+    def fake_score_llm(
+        self: HeuristicArticleScoring,
+        *,
+        fr: FilterResult,
+        keyword_points: int,
+    ) -> tuple[int, bool, str | None, bool]:
+        return 50, True, None, True
 
+    monkeypatch.setattr(HeuristicArticleScoring, "_score_llm", fake_score_llm)
     settings = Settings(
-        include_keywords="alpha,beta,gamma,delta,epsilon,zeta,eta,theta",
-        score_strong_keywords="strong1,strong2,strong3,strong4,strong5",
-        score_technical_keywords="tech1,tech2,tech3,tech4,tech5",
+        include_keywords="onlyone",
+        score_strong_keywords="",
+        score_technical_keywords="",
         score_negative_keywords="",
-        score_weight_recency_max=10,
-        keyword_score_max=80,
-        llm_score_max=50,
+        score_weight_include_keyword=50,
+        score_weight_title_match_bonus=0,
+        score_weight_recency_max=0,
         llm_scoring_enabled=True,
         openai_api_key="x",
     )
-    scorer = HighLLMScorer(settings, reference_time=datetime(2026, 4, 1, tzinfo=UTC))
+    scorer = HeuristicArticleScoring(settings, reference_time=datetime(2026, 4, 1, tzinfo=UTC))
     fr = FilterResult(
-        article=_article(
-            title="strong1 tech1 alpha",
-            summary=(
-                "alpha beta gamma delta epsilon zeta eta theta "
-                "strong1 strong2 strong3 strong4 strong5 tech1 tech2 tech3 tech4 tech5"
-            ),
-        ),
+        article=_article(title="x", summary="onlyone"),
         passed=True,
     )
     score = scorer.score([fr])[0]
-    assert score.explanation.keyword_points > 50
+    assert score.explanation.keyword_points == 50
     assert score.explanation.llm_points == 50
     assert score.points == 100
     assert score.explanation.total_points == 100
@@ -342,7 +341,6 @@ def test_repeated_keyword_spam_does_not_grow_unbounded() -> None:
         score_weight_include_keyword=5,
         score_weight_title_match_bonus=0,
         score_weight_recency_max=0,
-        keyword_score_max=50,
         llm_scoring_enabled=False,
     )
     scorer = HeuristicArticleScoring(settings, reference_time=datetime(2026, 1, 1, tzinfo=UTC))
@@ -353,19 +351,15 @@ def test_repeated_keyword_spam_does_not_grow_unbounded() -> None:
     assert s1 == s2
 
 
-def test_llm_not_called_when_keyword_below_threshold() -> None:
-    class TrackingScorer(HeuristicArticleScoring):
-        def __init__(self, settings: Settings) -> None:
-            super().__init__(settings, reference_time=datetime(2026, 1, 1, tzinfo=UTC))
-            self.called = False
+def test_llm_not_called_when_keyword_below_threshold(monkeypatch: Any) -> None:
+    calls: list[object] = []
 
-        def _score_llm(
-            self, *, fr: FilterResult, keyword_points: int
-        ) -> tuple[int, bool, str | None, bool]:
-            self.called = True
-            return super()._score_llm(fr=fr, keyword_points=keyword_points)
+    def fake_urlopen(_req: object, timeout: float = 0.0) -> Any:
+        calls.append((_req, timeout))
+        raise AssertionError("LLM API should not be called below threshold")
 
-    scorer = TrackingScorer(
+    monkeypatch.setattr(scoring_mod, "urlopen", fake_urlopen)
+    scorer = HeuristicArticleScoring(
         Settings(
             include_keywords="alpha",
             score_strong_keywords="",
@@ -377,29 +371,57 @@ def test_llm_not_called_when_keyword_below_threshold() -> None:
             llm_keyword_threshold=20,
             openai_api_key="x",
             llm_scoring_enabled=True,
-        )
+        ),
+        reference_time=datetime(2026, 1, 1, tzinfo=UTC),
     )
     fr = FilterResult(article=_article(title="z", summary="alpha"), passed=True)
     score = scorer.score([fr])[0]
-    assert scorer.called
+    assert calls == []
     assert score.explanation.llm_points == 0
     assert score.explanation.llm_applied is False
-    assert score.explanation.llm_fallback_reason == "keyword_threshold_not_met"
+    assert score.explanation.llm_fallback_reason == "below_keyword_threshold"
 
 
-def test_llm_called_when_keyword_meets_threshold() -> None:
-    class TrackingScorer(HeuristicArticleScoring):
-        def __init__(self, settings: Settings) -> None:
-            super().__init__(settings, reference_time=datetime(2026, 1, 1, tzinfo=UTC))
-            self.called = False
+class _FakeHttpResponse:
+    def __init__(self, body: bytes) -> None:
+        self._body = body
 
-        def _score_llm(
-            self, *, fr: FilterResult, keyword_points: int
-        ) -> tuple[int, bool, str | None, bool]:
-            self.called = True
-            return 7, True, None, True
+    def __enter__(self) -> _FakeHttpResponse:
+        return self
 
-    scorer = TrackingScorer(
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return self._body
+
+
+def _llm_payload(content: str) -> bytes:
+    return (
+        '{"choices":[{"message":{"content":'
+        + json.dumps(content)
+        + '}}]}'
+    ).encode("utf-8")
+
+
+def test_llm_called_when_keyword_meets_threshold(monkeypatch: Any) -> None:
+    llm_calls: list[object] = []
+
+    def fake_urlopen(req: object, timeout: float = 0.0) -> Any:
+        full_url = getattr(req, "full_url", "")
+        if "api.openai.com" in full_url:
+            llm_calls.append((req, timeout))
+            return _FakeHttpResponse(
+                _llm_payload(
+                    '{"practical_value":7,"novelty":7,"depth":7,'
+                    '"signal_to_noise":7,"relevance_to_tech_radar":7,'
+                    '"total":35,"short_reason":"ok"}'
+                )
+            )
+        return _FakeHttpResponse(b"<html><article>body text</article></html>")
+
+    monkeypatch.setattr(scoring_mod, "urlopen", fake_urlopen)
+    scorer = HeuristicArticleScoring(
         Settings(
             include_keywords="alpha,beta,gamma,delta",
             score_strong_keywords="",
@@ -411,23 +433,27 @@ def test_llm_called_when_keyword_meets_threshold() -> None:
             llm_keyword_threshold=20,
             llm_scoring_enabled=True,
             openai_api_key="x",
-        )
+            llm_fetch_article_enabled=False,
+        ),
+        reference_time=datetime(2026, 1, 1, tzinfo=UTC),
     )
     fr = FilterResult(article=_article(title="z", summary="alpha beta gamma delta"), passed=True)
     score = scorer.score([fr])[0]
-    assert scorer.called
+    assert llm_calls
     assert score.explanation.llm_applied is True
-    assert score.explanation.llm_points == 7
+    assert score.explanation.llm_points == 35
+    assert score.points == score.explanation.keyword_points + 35
 
 
-def test_invalid_llm_json_falls_back_to_zero() -> None:
-    class InvalidJsonScorer(HeuristicArticleScoring):
-        def _score_llm(
-            self, *, fr: FilterResult, keyword_points: int
-        ) -> tuple[int, bool, str | None, bool]:
-            return 0, False, "llm_request_or_parse_failed", True
+def test_llm_disabled_skips_api_and_total_equals_keyword(monkeypatch: Any) -> None:
+    calls: list[object] = []
 
-    scorer = InvalidJsonScorer(
+    def fake_urlopen(_req: object, timeout: float = 0.0) -> Any:
+        calls.append((_req, timeout))
+        raise AssertionError("LLM API should not be called when disabled")
+
+    monkeypatch.setattr(scoring_mod, "urlopen", fake_urlopen)
+    scorer = HeuristicArticleScoring(
         Settings(
             include_keywords="alpha,beta,gamma,delta",
             score_strong_keywords="",
@@ -437,26 +463,158 @@ def test_invalid_llm_json_falls_back_to_zero() -> None:
             score_weight_title_match_bonus=0,
             score_weight_recency_max=0,
             llm_keyword_threshold=20,
-            llm_scoring_enabled=True,
+            llm_scoring_enabled=False,
             openai_api_key="x",
         ),
         reference_time=datetime(2026, 1, 1, tzinfo=UTC),
     )
     fr = FilterResult(article=_article(title="z", summary="alpha beta gamma delta"), passed=True)
     score = scorer.score([fr])[0]
+    assert calls == []
     assert score.explanation.llm_points == 0
     assert score.explanation.llm_applied is False
-    assert score.explanation.llm_fallback_reason == "llm_request_or_parse_failed"
+    assert score.explanation.llm_fallback_reason == "llm_disabled"
+    assert score.points == score.explanation.keyword_points
 
 
-def test_article_fetch_failure_falls_back_gracefully() -> None:
-    class FetchFailedScorer(HeuristicArticleScoring):
-        def _score_llm(
-            self, *, fr: FilterResult, keyword_points: int
-        ) -> tuple[int, bool, str | None, bool]:
-            return 0, False, "article_fetch_failed", False
+def test_missing_api_key_skips_api_and_total_equals_keyword(monkeypatch: Any) -> None:
+    calls: list[object] = []
 
-    scorer = FetchFailedScorer(
+    def fake_urlopen(_req: object, timeout: float = 0.0) -> Any:
+        calls.append((_req, timeout))
+        raise AssertionError("LLM API should not be called without key")
+
+    monkeypatch.setattr(scoring_mod, "urlopen", fake_urlopen)
+    scorer = HeuristicArticleScoring(
+        Settings(
+            include_keywords="alpha,beta,gamma,delta",
+            score_strong_keywords="",
+            score_technical_keywords="",
+            score_negative_keywords="",
+            score_weight_include_keyword=5,
+            score_weight_title_match_bonus=0,
+            score_weight_recency_max=0,
+            llm_keyword_threshold=20,
+            llm_scoring_enabled=True,
+            openai_api_key=None,
+        ),
+        reference_time=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    fr = FilterResult(article=_article(title="z", summary="alpha beta gamma delta"), passed=True)
+    score = scorer.score([fr])[0]
+    assert calls == []
+    assert score.explanation.llm_points == 0
+    assert score.explanation.llm_applied is False
+    assert score.explanation.llm_fallback_reason == "missing_api_key"
+    assert score.points == score.explanation.keyword_points
+
+
+def test_fetch_disabled_still_uses_fallback_content(monkeypatch: Any) -> None:
+    prompts: list[str] = []
+
+    def fake_urlopen(req: object, timeout: float = 0.0) -> Any:
+        full_url = cast(Request, req).full_url
+        if "api.openai.com" in full_url:
+            raw = cast(Request, req).data
+            assert isinstance(raw, (bytes, bytearray))
+            payload = json.loads(bytes(raw).decode("utf-8"))
+            prompts.append(payload["messages"][1]["content"])
+            return _FakeHttpResponse(
+                _llm_payload(
+                    '{"practical_value":6,"novelty":6,"depth":6,'
+                    '"signal_to_noise":6,"relevance_to_tech_radar":6,'
+                    '"total":30,"short_reason":"fallback"}'
+                )
+            )
+        raise AssertionError("Fetch should not run when disabled")
+
+    monkeypatch.setattr(scoring_mod, "urlopen", fake_urlopen)
+    scorer = HeuristicArticleScoring(
+        Settings(
+            include_keywords="alpha,beta,gamma,delta",
+            score_strong_keywords="",
+            score_technical_keywords="",
+            score_negative_keywords="",
+            score_weight_include_keyword=5,
+            score_weight_title_match_bonus=0,
+            score_weight_recency_max=0,
+            llm_keyword_threshold=20,
+            llm_scoring_enabled=True,
+            openai_api_key="x",
+            llm_fetch_article_enabled=False,
+        ),
+        reference_time=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    fr = FilterResult(
+        article=_article(
+            title="alpha z",
+            summary="alpha beta gamma delta",
+            categories=["Backend"],
+        ),
+        passed=True,
+    )
+    score = scorer.score([fr])[0]
+    assert prompts
+    assert "Title: alpha z" in prompts[0]
+    assert "Summary: alpha beta gamma delta" in prompts[0]
+    assert "Categories: Backend" in prompts[0]
+    assert score.explanation.llm_points == 30
+    assert score.explanation.content_fetch_used is False
+
+
+def test_fetch_failure_uses_fallback_content(monkeypatch: Any) -> None:
+    prompts: list[str] = []
+
+    def fake_urlopen(req: object, timeout: float = 0.0) -> Any:
+        full_url = cast(Request, req).full_url
+        if "api.openai.com" in full_url:
+            raw = cast(Request, req).data
+            assert isinstance(raw, (bytes, bytearray))
+            payload = json.loads(bytes(raw).decode("utf-8"))
+            prompts.append(payload["messages"][1]["content"])
+            return _FakeHttpResponse(
+                _llm_payload(
+                    '{"practical_value":5,"novelty":5,"depth":5,'
+                    '"signal_to_noise":5,"relevance_to_tech_radar":5,'
+                    '"total":25,"short_reason":"fallback after fetch fail"}'
+                )
+            )
+        raise OSError("network failed")
+
+    monkeypatch.setattr(scoring_mod, "urlopen", fake_urlopen)
+    scorer = HeuristicArticleScoring(
+        Settings(
+            include_keywords="alpha,beta,gamma,delta",
+            score_strong_keywords="",
+            score_technical_keywords="",
+            score_negative_keywords="",
+            score_weight_include_keyword=5,
+            score_weight_title_match_bonus=0,
+            score_weight_recency_max=0,
+            llm_keyword_threshold=20,
+            llm_scoring_enabled=True,
+            openai_api_key="x",
+            llm_fetch_article_enabled=True,
+        ),
+        reference_time=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    fr = FilterResult(article=_article(title="z", summary="alpha beta gamma delta"), passed=True)
+    score = scorer.score([fr])[0]
+    assert prompts
+    assert score.explanation.llm_points == 25
+    assert score.explanation.llm_applied is True
+    assert score.explanation.content_fetch_used is False
+
+
+def test_invalid_llm_json_falls_back_to_zero(monkeypatch: Any) -> None:
+    def fake_urlopen(req: object, timeout: float = 0.0) -> Any:
+        full_url = getattr(req, "full_url", "")
+        if "api.openai.com" in full_url:
+            return _FakeHttpResponse(_llm_payload("not-json"))
+        return _FakeHttpResponse(b"<html><article>body text</article></html>")
+
+    monkeypatch.setattr(scoring_mod, "urlopen", fake_urlopen)
+    scorer = HeuristicArticleScoring(
         Settings(
             include_keywords="alpha,beta,gamma,delta",
             score_strong_keywords="",
@@ -476,4 +634,4 @@ def test_article_fetch_failure_falls_back_gracefully() -> None:
     score = scorer.score([fr])[0]
     assert score.explanation.llm_points == 0
     assert score.explanation.llm_applied is False
-    assert score.explanation.llm_fallback_reason == "article_fetch_failed"
+    assert score.explanation.llm_fallback_reason == "llm_request_or_parse_failed"
